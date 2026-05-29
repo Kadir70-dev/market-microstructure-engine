@@ -73,7 +73,7 @@ Copy `ops/.env.example` to `ops/.env` and fill in. `ops/.env` is gitignored.
 
 | Variable | Effect |
 |---|---|
-| `TWELVEDATA_API_KEY` | Written to `config/api_key.txt` by `start_engine.sh` |
+| `MME_QUOTES_CSV` | Absolute path to the MQL5 EA's CSV (the feed). Default `../data/mme_quotes.csv`. |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Enables Telegram notifications. No-op if unset. |
 | `STALE_LOG_THRESHOLD_S` | health_check WARN if `engine.log` is silent longer than this (default 120) |
 | `LONDON_OPEN_UTC`, `NY_CLOSE_UTC` | Reference values for crontab scheduling |

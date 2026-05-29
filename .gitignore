@@ -67,3 +67,6 @@ Thumbs.db
 #   docs/*.md, ops/*.sh, ops/*.py    operations layer
 #   ops/.env.example                 template, safe to commit
 # ─────────────────────────────────────────────────────────────────────────
+
+# MT5 EA quote snapshots (runtime)
+data/*.csv

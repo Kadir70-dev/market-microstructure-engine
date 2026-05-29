@@ -11,8 +11,9 @@
 #   sudo systemctl enable --now mme-engine mme-health.timer mme-cleanup.timer
 #   systemctl status mme-engine ; journalctl -u mme-engine -f
 #
-# The engine reads ../config/api_key.txt relative to CWD, so WorkingDirectory is
-# build/. Ensure config/api_key.txt is non-empty before starting.
+# MT5-only via file-export: the engine reads quotes from the MQL5 EA's CSV.
+# Set MME_QUOTES_CSV to the ABSOLUTE path of the EA output (under the Wine
+# prefix), e.g. Environment=MME_QUOTES_CSV=/home/USER/.mt5/drive_c/.../MQL5/Files/mme_quotes.csv
 
 [Unit]
 Description=Market Microstructure Engine (24/5 data collection, read-only, no trading)

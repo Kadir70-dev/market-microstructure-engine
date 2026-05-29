@@ -22,20 +22,13 @@ if [[ -f "$PID_FILE" ]]; then
     rm -f "$PID_FILE"
 fi
 
-# Engine reads ../config/api_key.txt relative to CWD, so we must cd to build/.
+# Engine writes ../data/engine.db relative to CWD, so we must cd to build/.
 cd "$PROJECT_ROOT/build"
 
-# If .env supplied a key and the file is missing, materialize it.
-# Env stays the source of truth; the file is a runtime artifact.
-if [[ -n "${TWELVEDATA_API_KEY:-}" ]]; then
-    printf '%s\n' "$TWELVEDATA_API_KEY" > "$PROJECT_ROOT/config/api_key.txt"
-    chmod 600 "$PROJECT_ROOT/config/api_key.txt"
-fi
-
-if [[ ! -s "$PROJECT_ROOT/config/api_key.txt" ]]; then
-    ops_log "FATAL: no API key (neither TWELVEDATA_API_KEY env nor config/api_key.txt)"
-    exit 3
-fi
+# MT5-only via file-export: the engine reads quotes from the CSV written by the
+# MQL5 EA (MME_QUOTES_CSV, default ../data/mme_quotes.csv). No API key. The EA
+# (under Wine) must be running and writing that file; if it isn't, the engine
+# logs a warning and retries each cycle — it does not exit.
 
 # Append (don't truncate) so we can see history across restarts.
 nohup ./engine >> "$ENGINE_OUT" 2>> "$ENGINE_ERR" &

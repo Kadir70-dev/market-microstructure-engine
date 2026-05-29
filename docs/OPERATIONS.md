@@ -7,7 +7,6 @@ How the infra layer is organized. Read this once, then use `RUNBOOK.md` daily.
 ```
 market-microstructure-engine/
 ├── build/                  # cmake out-of-source build (engine, engine_backtest)
-├── config/api_key.txt      # written by start_engine.sh from env if set
 ├── data/engine.db          # SQLite — single source of truth for all derived data
 ├── logs/                   # engine.log (rotating), engine.out/err, ops.log
 ├── run/engine.pid          # written by start_engine.sh, removed by stop_engine.sh
@@ -49,7 +48,7 @@ The schedule is documentation — `crontab.example` is not auto-installed. Insta
 | Script | Purpose | Side effects |
 |---|---|---|
 | `common.sh` | Path constants, env loading, PID helpers, `notify()` | none (sourced only) |
-| `start_engine.sh` | Launch engine in background, write PID, verify it stayed up | writes PID file, may write `config/api_key.txt` |
+| `start_engine.sh` | Launch engine in background, write PID, verify it stayed up | writes PID file |
 | `stop_engine.sh` | SIGTERM → 15s wait → SIGKILL fallback | removes PID file |
 | `status_engine.sh` | Print state + last log line | none |
 | `restart_engine.sh` | stop then start | as above |
@@ -64,7 +63,7 @@ The schedule is documentation — `crontab.example` is not auto-installed. Insta
 ## Boundaries
 
 1. **Engine and Hermes never share a DB connection.** Engine writes; Hermes opens `mode=ro` and SQLite rejects writes at the driver layer.
-2. **No trading touchpoint exists anywhere in this layer.** Telegram is used only for engine lifecycle and EOD report summary. No script knows how to place an order; the only external HTTP calls are to TwelveData (from `engine` binary) and Telegram (from `telegram_notify.sh`).
+2. **No trading touchpoint exists anywhere in this layer.** Telegram is used only for engine lifecycle and EOD report summary. No script knows how to place an order. The engine reads quotes from a local CSV (written by the MQL5 EA); the only external HTTP call in the system is Telegram (from `telegram_notify.sh`).
 3. **The C++ engine is the only writer to `engine.db`.** Hermes and the backtest harness are read-only by URI mode.
 4. **Process state is single-file.** One engine, one PID file at `run/engine.pid`. Multi-instance is not supported and not needed.
 

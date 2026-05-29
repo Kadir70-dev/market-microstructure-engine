@@ -21,14 +21,14 @@ lifecycle (auto-restart, boot-start); timers handle health and cleanup.
 ```bash
 # 1. Build + key + (recommended) Telegram creds first:
 cmake --build build
-test -s config/api_key.txt
+ops/check_quotes.sh   # MT5 EA writing the CSV? (start MT5 + EA under Wine first)
 cp ops/.env.example ops/.env   # fill TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID for death alerts
 
 # 2. Install + enable everything (start now + on boot):
 sudo ops/install_systemd.sh
 ```
 
-The installer preflights (engine binary, API key, Telegram creds), copies units to
+The installer preflights (engine binary, quotes CSV, Telegram creds), copies units to
 `/etc/systemd/system`, verifies syntax, and enables the engine + both timers.
 
 ## Operate

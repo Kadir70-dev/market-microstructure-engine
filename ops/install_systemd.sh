@@ -24,14 +24,15 @@ UNIT_DST="/etc/systemd/system"
 # --- Preflight checks ----------------------------------------------------
 echo "==> Preflight"
 [[ -x "$PROJECT_ROOT/build/engine" ]] || { echo "FATAL: build/engine missing — run 'cmake --build build' first"; exit 2; }
-if [[ ! -s "$PROJECT_ROOT/config/api_key.txt" ]]; then
-    echo "FATAL: config/api_key.txt missing/empty — engine cannot fetch quotes"; exit 3
+CSV="${MME_QUOTES_CSV_ABS:-$PROJECT_ROOT/data/mme_quotes.csv}"
+if [[ ! -f "$CSV" ]]; then
+    echo "WARN: quotes CSV not found at $CSV — start the MQL5 EA (under Wine) so it writes it."
+    echo "      The engine will run and retry each cycle until the file appears."
 fi
 if ! grep -qE '^TELEGRAM_BOT_TOKEN=.+' "$PROJECT_ROOT/ops/.env" 2>/dev/null; then
     echo "WARN: TELEGRAM_BOT_TOKEN not set in ops/.env — death alerts will be silent."
-    echo "      Fill ops/.env (copy from ops/.env.example) to enable Telegram paging."
 fi
-echo "    build/engine: OK, config/api_key.txt: OK"
+echo "    build/engine: OK"
 
 # --- Install units -------------------------------------------------------
 echo "==> Installing units to $UNIT_DST"

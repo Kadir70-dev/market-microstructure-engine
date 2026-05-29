@@ -10,7 +10,7 @@ Checks:
   2. db_present      — engine.db exists and is readable
   3. db_recent_write — newest tick is within (5 × poll_interval) seconds
   4. log_recent      — engine.log modified within STALE_LOG_THRESHOLD_S
-  5. api_key_present — config/api_key.txt non-empty OR TWELVEDATA_API_KEY set
+  5. quotes_csv      — MQL5 EA's CSV exists and was updated recently
   6. price_not_frozen — latest 5 ticks per symbol are not byte-identical
                         (mirrors validation/isStale; flags feed problems)
 
@@ -37,7 +37,8 @@ LOG_DIR      = PROJECT_ROOT / "logs"
 PID_FILE     = RUN_DIR / "engine.pid"
 ENGINE_LOG   = LOG_DIR / "engine.log"
 DB_PATH      = PROJECT_ROOT / "data" / "engine.db"
-API_KEY_FILE = PROJECT_ROOT / "config" / "api_key.txt"
+QUOTES_CSV   = Path(os.environ.get("MME_QUOTES_CSV_ABS", str(PROJECT_ROOT / "data" / "mme_quotes.csv")))
+QUOTES_STALE_S = int(os.environ.get("MME_FILE_STALE_S", "120"))
 
 POLL_INTERVAL_S       = 30   # engine kSleepSeconds
 DB_STALENESS_FACTOR   = 5    # tolerate up to 5 missed cycles before failing
@@ -131,16 +132,17 @@ def check_log_recent() -> dict:
     return check("log_recent", Status.PASS, f"last write {age}s ago")
 
 
-def check_api_key_present() -> dict:
-    if os.environ.get("TWELVEDATA_API_KEY"):
-        return check("api_key_present", Status.PASS, "from env")
-    if API_KEY_FILE.exists() and API_KEY_FILE.stat().st_size > 0:
-        return check("api_key_present", Status.PASS, f"from {API_KEY_FILE}")
-    return check(
-        "api_key_present",
-        Status.FAIL,
-        "no TWELVEDATA_API_KEY env and config/api_key.txt missing/empty",
-    )
+def check_quotes_csv() -> dict:
+    """The MQL5 EA's CSV is the sole feed. WARN (not FAIL) if missing/stale:
+    markets close on weekends and the EA may briefly restart; the engine retries
+    and downstream staleness covers it. Catches 'engine up but EA dead'."""
+    if not QUOTES_CSV.exists():
+        return check("quotes_csv", Status.WARN, f"missing {QUOTES_CSV} (is the MT5 EA running?)")
+    age = int(time.time() - QUOTES_CSV.stat().st_mtime)
+    if age > QUOTES_STALE_S:
+        return check("quotes_csv", Status.WARN,
+                     f"{QUOTES_CSV.name} not updated for {age}s (> {QUOTES_STALE_S}s) — EA stalled?")
+    return check("quotes_csv", Status.PASS, f"{QUOTES_CSV.name} fresh ({age}s old)")
 
 
 def check_price_not_frozen() -> dict:
@@ -174,7 +176,7 @@ CHECKS = [
     check_db_present,
     check_db_recent_write,
     check_log_recent,
-    check_api_key_present,
+    check_quotes_csv,
     check_price_not_frozen,
 ]
 

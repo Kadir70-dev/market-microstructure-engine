@@ -15,7 +15,7 @@ The first market-open run. Do these in order. None of them place trades — this
 - [ ] Configure environment
   ```bash
   cp ops/.env.example ops/.env
-  # Edit ops/.env, populate at minimum TWELVEDATA_API_KEY
+  # Optional: set MME_QUOTES_CSV (absolute Wine path) + Telegram creds
   # (Telegram is optional — leave blank to skip notifications)
   chmod 600 ops/.env
   ```
@@ -41,8 +41,8 @@ The first market-open run. Do these in order. None of them place trades — this
   ```
 - [ ] Pre-warm: one-shot test fetch to confirm the API key works
   ```bash
-  KEY=$(cat config/api_key.txt)
-  curl -s "https://api.twelvedata.com/price?symbol=EUR/USD&apikey=$KEY"
+  ops/check_quotes.sh "$MME_QUOTES_CSV"
+  # expect: QUOTES OK: fresh  (start MT5 + the EA under Wine first)
   # expect: {"price":"1.xxxxx"}
   ```
 

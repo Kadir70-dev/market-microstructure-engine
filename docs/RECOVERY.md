@@ -13,7 +13,6 @@ tail -n 50 logs/engine.log           # crashes after init land here
 | Exit | Meaning | Fix |
 |---|---|---|
 | 2 | Binary missing | `cmake --build build` |
-| 3 | No API key (env unset and `config/api_key.txt` empty) | Populate `ops/.env` or write the file directly |
 | 4 | Engine died in <2s | Read `logs/engine.err`. Typical causes: bad API key (curl error), missing `data/` dir, SQLite permission issue |
 
 ## 2. Engine running, but no new data
@@ -26,9 +25,9 @@ tail -n 20 logs/engine.log
 
 Diagnoses:
 - **Frozen feed (weekend/holiday):** `health_check.py` flags `price_not_frozen: WARN`. Not a fault — the market is closed. Engine will resume signal variation when prices update.
-- **API key rejected:** `logs/engine.log` shows fetch warnings. Re-check key, re-write to `config/api_key.txt`, restart.
-- **Rate limit exceeded:** TwelveData free tier is 8 req/min, 800/day. Engine does 6 req/min. If `engine.log` shows 429s, you're over the daily limit — wait for reset or upgrade plan.
-- **Network outage:** `curl https://api.twelvedata.com/price?symbol=EUR/USD&apikey=$KEY` — if this fails, it's the network, not the engine.
+- **No quotes / CSV stale:** `ops/check_quotes.sh`. Is MT5 + the EA running under Wine, and is `MME_QUOTES_CSV` the correct Wine-prefix path? The engine auto-recovers when the CSV updates again.
+- **Symbol not found:** the EA only writes symbols your broker quotes. Make `InpSymbols` (EA) and `SymbolDef.mt5` (`src/main.cpp`) match your broker's names.
+- **EA stopped:** check the MT5 terminal is open under Wine and the EA shows a smiley on its chart (Algo Trading enabled).
 
 ## 3. Engine alive but logs are silent
 
@@ -40,7 +39,7 @@ strace -p $(cat run/engine.pid)      # see what syscall it's blocked on
                                       # (needs ptrace_scope=0 or sudo)
 ```
 
-If blocked on a TwelveData HTTP read, the engine is fine — just slow. If it's truly hung, `ops/restart_engine.sh`.
+The engine only reads a local file, so it never blocks on the network. If it's truly hung, `ops/restart_engine.sh`.
 
 ## 4. Stale PID file (engine listed as running but isn't)
 

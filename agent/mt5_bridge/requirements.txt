@@ -1,3 +1,0 @@
-# Only required on the Windows host running MT5.
-# On Linux, set MT5_BRIDGE_MOCK=true and skip this dependency.
-MetaTrader5>=5.0.45

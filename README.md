@@ -58,13 +58,15 @@ problem to be measured — not assumed.
 
 ```mermaid
 flowchart LR
-    subgraph Feeds["Market data sources"]
-        TD["TwelveData REST<br/>(free tier, live)"]
-        MT5["MT5 Bridge<br/>(Python sidecar, read-only)"]
+    subgraph Feeds["Market data (Ubuntu + Wine)"]
+        MT5["MetaTrader 5 (Wine)"]
+        EA["MQL5 EA<br/>mt5_file_export"]
+        CSV["mme_quotes.csv"]
+        MT5 --> EA --> CSV
     end
 
     subgraph Engine["C++ Engine (single binary, 30s poll loop)"]
-        FETCH["market_fetcher /<br/>provider interface"]
+        FETCH["FileProvider<br/>(reads CSV)"]
         IND["Indicators<br/>momentum · volatility"]
         VAL["Validation<br/>staleness · session · confidence · trade-quality"]
     end
@@ -79,8 +81,7 @@ flowchart LR
     DASH["Next.js Dashboard<br/>(read-only observability)"]
     TG["Telegram<br/>(infra alerts only)"]
 
-    TD --> FETCH
-    MT5 --> FETCH
+    CSV --> FETCH
     FETCH --> IND --> VAL
     FETCH --> DB
     IND --> DB
@@ -107,7 +108,7 @@ For each symbol, every cycle:
 
 | Stage | Module | Output |
 |---|---|---|
-| Fetch | `market_data/` | mid price (TwelveData REST or MT5 bid/ask mid) |
+| Fetch | `market_data/file_provider` | mid price from the MQL5 EA's CSV snapshot |
 | Momentum | `indicators/momentum.cpp` | `Bullish` / `Bearish` / `Neutral` (±1e-7 dead-zone) |
 | Volatility | `indicators/volatility.cpp` | stddev of log-returns → `LOW` / `MEDIUM` / `HIGH` (scale-invariant) |
 | Staleness | `validation/validation.cpp` | byte-frozen feed detection (catches weekend/cache/symbol bugs) |
@@ -144,30 +145,27 @@ See sample output in [`agent/hermes/reports/`](agent/hermes/reports/).
 
 ---
 
-## MT5 bridge
+## MT5 feed (Linux + Wine, file-export)
 
-`agent/mt5_bridge/` is a small NDJSON-over-TCP Python sidecar that runs on the
-Windows host where MetaTrader 5 lives, letting the Linux C++ engine pull broker
-quotes. **Phase 1 is read-only:** it serves exactly two operations, `ping` and
-`quote`. There are *no order operations in the code at all*.
+The **only** data source. MetaTrader 5 runs under **Wine**; a tiny **MQL5 Expert
+Advisor** ([`mt5_file_export.mq5`](agent/mt5_bridge/mt5_file_export.mq5)) running
+inside the terminal writes quotes to `mme_quotes.csv`, and the native-Linux
+engine's `FileProvider` reads that CSV. No Python `MetaTrader5` package
+(Windows-only), no cross-boundary sockets, no API key.
 
-Defense in depth against accidental live trading:
+CSV schema — one line per symbol, overwritten each interval:
 
-- The bridge refuses to start against a non-DEMO account unless **both**
-  `ENABLE_LIVE_TRADING=true` **and** a `confirm_live_trading.txt` file exist.
-- The bridge's `ping` reports `demo_only`. The C++ engine **refuses to start**
-  if it connects to a bridge reporting `demo_only=false`.
-- `MT5_BRIDGE_MOCK=true` serves a synthetic random walk so the whole path is
-  testable on Linux with no MetaTrader install.
+```
+symbol,epoch_seconds,bid,ask,mid
+EURUSD,1780061874,1.08490,1.08500,1.08495
+```
 
-**Linux + Wine** (no Windows host): the Python `MetaTrader5` package is
-Windows-only, so the supported MT5 path is the **MQL5 file-export EA**
-([`mt5_file_export.mq5`](agent/mt5_bridge/mt5_file_export.mq5)) — it runs inside
-MT5-under-Wine and writes a CSV the native-Linux engine reads. While that's
-being stood up, the engine collects via **TwelveData** (REST, native).
+- **Read-only / no trading:** the EA has no order calls and warns on a non-demo
+  account; the engine only *reads* a file — no execution path exists anywhere.
+- **Staleness-tolerant:** if the EA/terminal stalls, the CSV mtime stops
+  advancing → the engine skips and `health_check.py`'s `quotes_csv` check flags it.
 
-Protocol spec: [`agent/mt5_bridge/protocol.md`](agent/mt5_bridge/protocol.md).
-Setup: [`docs/MT5_BRIDGE.md`](docs/MT5_BRIDGE.md).
+Full setup + MetaEditor steps: [`docs/MT5_BRIDGE.md`](docs/MT5_BRIDGE.md).
 
 ---
 
@@ -178,7 +176,8 @@ Setup: [`docs/MT5_BRIDGE.md`](docs/MT5_BRIDGE.md).
 
 1. **No execution path exists.** Not disabled — *absent*. There is no order
    function to accidentally call.
-2. **Demo-only tripwires** gate the MT5 bridge at two independent layers.
+2. **Read-only by construction.** The MT5 EA has no order calls (warns on a
+   non-demo account); the engine only *reads* a CSV — no execution path exists.
 3. **Telegram is for infra only** — start/stop/crash/feed alerts. It is wired
    to *never* carry a trading action, by design and by comment contract.
 4. **Costs are modeled before profits are believed.** The backtest applies
@@ -332,8 +331,8 @@ and they render here._
 System deps (Ubuntu):
 
 ```bash
-sudo apt install build-essential cmake libspdlog-dev libcurl4-openssl-dev \
-                 libsqlite3-dev nlohmann-json3-dev sqlite3 python3
+sudo apt install build-essential cmake libspdlog-dev \
+                 libsqlite3-dev sqlite3 python3
 ```
 
 Build:
@@ -343,15 +342,18 @@ cmake -S . -B build
 cmake --build build
 ```
 
-Configure the data feed (one of):
+Configure the data feed — **MT5-only via file-export** (no API key):
 
 ```bash
-# Option A — TwelveData (default). Put your free-tier key here:
-echo "YOUR_TWELVEDATA_KEY" > config/api_key.txt && chmod 600 config/api_key.txt
-
-# Option B — ops/.env (preferred for deployment; start_engine.sh materializes the key)
-cp ops/.env.example ops/.env   # then fill in TWELVEDATA_API_KEY (+ optional Telegram)
+# 1. Run MT5 under Wine, log into a DEMO account.
+# 2. In MetaEditor, compile + attach agent/mt5_bridge/mt5_file_export.mq5
+#    (it writes mme_quotes.csv into the terminal's MQL5/Files/ folder).
+# 3. Point the engine at that CSV (absolute path inside the Wine prefix):
+export MME_QUOTES_CSV="$HOME/.mt5/drive_c/Program Files/<Terminal>/MQL5/Files/mme_quotes.csv"
+ops/check_quotes.sh "$MME_QUOTES_CSV"   # expect: QUOTES OK: fresh
 ```
+
+Full step-by-step (Wine + MetaEditor): [`docs/MT5_BRIDGE.md`](docs/MT5_BRIDGE.md).
 
 Run (binaries open paths relative to `build/`, so run from there):
 
@@ -405,9 +407,10 @@ prove alpha before risk.**
   Hermes report generation are unit-tested and run in CI; the live HTTP fetch,
   the SQLite writer, and the MT5 socket path are not yet covered by automated
   tests (they're exercised manually / by mock mode).
-- **Free-tier rate limits.** TwelveData free tier is 8 req/min; the engine runs
-  ~6 req/min (3 symbols × 30s). No headroom for a 4th symbol without slowing the
-  cycle.
+- **MT5-under-Wine dependency.** The single feed is an MQL5 EA writing a CSV
+  from MT5 running under Wine. MT5 itself is stable under Wine, but it's a
+  heavier setup than a hosted REST API and the terminal/EA must stay running for
+  collection to continue (a stall is detected, not silently ignored).
 - **30s polling, not tick-level.** This is a microstructure *engine* in
   architecture; the current feed resolution is coarse. True microstructure work
   needs the MT5 tick path matured.
@@ -440,9 +443,10 @@ prove alpha before risk.**
   PID-recycling-aware liveness checks, graceful SIGTERM→SIGKILL escalation,
   rotating logs, a 6-point health board, cron + optional systemd auto-recovery,
   and infra-only Telegram alerting.
-- **Provider abstraction.** A single `IMarketDataProvider` interface lets the
-  same pipeline run against TwelveData REST or the MT5 bridge, selected by env
-  var, writing to separate DBs for honest side-by-side comparison.
+- **Clean provider seam.** A single `IMarketDataProvider` interface isolates the
+  feed: the system was migrated from a REST API to an MT5 file-export reader by
+  swapping one ~70-line `FileProvider`, with zero changes to indicators,
+  validation, storage, or the schema.
 - **An analyst that grades itself.** Hermes auto-flags its own data-quality
   problems and ties each recommendation to a specific source file.
 
