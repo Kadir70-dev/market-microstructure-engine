@@ -42,3 +42,25 @@ jobs:
           test -x build/engine_backtest
           test -x build/unit_tests
           echo "All binaries built."
+
+  dashboard:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Build (Next.js — DEMO data, no DB needed)
+        run: npm run build
