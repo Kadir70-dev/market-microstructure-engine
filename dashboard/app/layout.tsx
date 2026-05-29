@@ -28,6 +28,9 @@ export default function RootLayout({
               <Link href="/" className="hover:text-accent">
                 Dashboard
               </Link>
+              <Link href="/prediction" className="hover:text-accent">
+                Prediction
+              </Link>
               <Link href="/reports" className="hover:text-accent">
                 Hermes Reports
               </Link>

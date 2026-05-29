@@ -264,6 +264,46 @@ deploys anywhere. See [`dashboard/README.md`](dashboard/README.md).
 > a positive **gross** edge that goes **negative after costs** at 30s cadence —
 > which is *why* the engine collects data instead of trading.
 
+## Prediction — honest ML baseline
+
+A **next-direction probability** model ([`agent/research/`](agent/research/))
+built to quant standards, with the result reported honestly rather than
+flattered:
+
+- **Logistic Regression** (interpretable, calibrated) on the engine's own
+  features — momentum, volatility, confidence, session, regime, rolling stats,
+  cost. No deep learning, no feature bloat.
+- **Walk-forward** (expanding, time-ordered) validation — no look-ahead leakage.
+- **Probabilities, not binary calls**, with a **calibration / reliability** curve.
+- A **permutation test** to prove whether AUC is above chance.
+- **Net-of-cost** evaluation — the only metric that matters.
+
+**Result (current run):**
+
+| Metric | Value |
+|---|---|
+| Out-of-sample AUC | **0.545** vs permutation null **0.498 ± 0.009**, **p = 0.03** → above chance |
+| Precision / Recall | 0.53 / 0.58 · Brier 0.249 (calibrated) |
+| Gross return | **+8.5%** |
+| **Net of cost** | **−57%** over 3,932 trades → **does NOT survive costs** |
+
+> **Honest verdict:** a weak, statistically-real directional signal that
+> transaction costs erase. **No deployable edge** — which is the correct finding,
+> not a disappointing one. A backtest that claimed otherwise on this data would
+> be lying.
+
+| Calibration | Feature importance | Net-of-cost equity |
+|---|---|---|
+| ![Calibration](agent/research/results/calibration.png) | ![Feature importance](agent/research/results/feature_importance.png) | ![Net of cost](agent/research/results/equity_net.png) |
+
+**On the data:** the live `engine.db` is currently *not trainable* (too few rows,
+no directional variance) — and the pipeline **says so explicitly** rather than
+fabricating a model. The metrics above are computed on a **disclosed synthetic
+session** (generating process in `synthetic.py`) to demonstrate the methodology;
+`--source db` switches to live data automatically once enough is collected. See
+[`agent/research/README.md`](agent/research/README.md). Surfaced live in the
+dashboard's **Prediction** tab.
+
 ## Screenshots
 
 _Run the dashboard (above) and capture these four; drop the PNGs in `docs/img/`
@@ -272,7 +312,7 @@ and they render here._
 | Image | What to capture |
 |---|---|
 | `docs/img/dashboard-overview.png` | Dashboard top: KPI row + price chart + equity curve |
-| `docs/img/dashboard-analytics.png` | Signal analytics + confidence calibration |
+| `docs/img/prediction.png` | The Prediction tab: AUC, calibration, net-of-cost, feature importance |
 | `docs/img/hermes-report.png` | The Hermes reports viewer (`/reports`) |
 | `docs/img/backtest.png` | `engine_backtest` net-return table (terminal) |
 

@@ -122,7 +122,11 @@ market-microstructure-engine/
 │
 ├── agent/
 │   ├── hermes/             Read-only Python analyst. daily_report.py + db.py. Writes reports/*.md.
-│   └── mt5_bridge/         Read-only Python MT5 sidecar. mt5_bridge.py + protocol.md. Demo-gated.
+│   ├── mt5_bridge/         Read-only Python MT5 sidecar. mt5_bridge.py + protocol.md. Demo-gated.
+│   └── research/           Predictive baseline (LogisticRegression, walk-forward). train.py +
+│                           features.py + synthetic.py + quant.py. Outputs results/model_results.json
+│                           (read by dashboard). Own .venv (gitignored). --source db|synthetic|auto.
+│                           HONEST: refuses to train on untrainable live data; says so.
 │
 ├── ops/                    Production shell + python. See §10. common.sh is sourced by all *.sh.
 │   ├── .env / .env.example secrets + schedule (.env is gitignored)

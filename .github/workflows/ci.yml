@@ -64,3 +64,23 @@ jobs:
 
       - name: Build (Next.js — DEMO data, no DB needed)
         run: npm run build
+
+  research:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ML deps
+        run: pip install -r agent/research/requirements.txt
+
+      - name: Run predictive baseline (synthetic — reproducible, no DB needed)
+        run: |
+          python -m agent.research.train --source synthetic
+          test -f agent/research/results/model_results.json
+          echo "ML pipeline reproduced; results written."

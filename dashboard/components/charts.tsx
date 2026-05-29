@@ -12,9 +12,12 @@ import {
   PieChart,
   ReferenceLine,
   ResponsiveContainer,
+  Scatter,
+  ScatterChart,
   Tooltip,
   XAxis,
   YAxis,
+  ZAxis,
 } from "recharts";
 
 const SYMBOL_COLORS: Record<string, string> = {
@@ -245,6 +248,108 @@ export function EquityCurveChart({
         <Line type="monotone" dataKey="gross" name="Gross" stroke="#38bdf8" dot={false} strokeWidth={1.5} />
         <Line type="monotone" dataKey="net" name="Net of cost" stroke="#22c55e" dot={false} strokeWidth={1.5} />
       </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ---- Reliability diagram (predicted prob vs observed frequency) ----------
+export function ReliabilityChart({
+  points,
+}: {
+  points: { mean_pred: number; frac_pos: number }[];
+}) {
+  return (
+    <ResponsiveContainer width="100%" height={240}>
+      <ScatterChart margin={{ top: 5, right: 15, bottom: 5, left: -10 }}>
+        <CartesianGrid stroke={GRID} strokeDasharray="3 3" />
+        <XAxis
+          type="number"
+          dataKey="mean_pred"
+          name="predicted"
+          domain={[0, 1]}
+          stroke={AXIS}
+          fontSize={11}
+          tickFormatter={(v) => v.toFixed(2)}
+        />
+        <YAxis
+          type="number"
+          dataKey="frac_pos"
+          name="observed"
+          domain={[0, 1]}
+          stroke={AXIS}
+          fontSize={11}
+          tickFormatter={(v) => v.toFixed(2)}
+        />
+        <ZAxis range={[60, 60]} />
+        <Tooltip contentStyle={tooltipStyle} cursor={{ strokeDasharray: "3 3" }} />
+        {/* perfect-calibration diagonal */}
+        <Line
+          data={[
+            { mean_pred: 0, frac_pos: 0 },
+            { mean_pred: 1, frac_pos: 1 },
+          ]}
+          dataKey="frac_pos"
+          stroke="#64748b"
+          strokeDasharray="4 4"
+          dot={false}
+          legendType="none"
+          isAnimationActive={false}
+        />
+        <Scatter data={points} fill="#a78bfa" line={{ stroke: "#a78bfa" }} />
+      </ScatterChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ---- Feature importance (signed standardized coefficients) ---------------
+export function FeatureImportanceChart({
+  features,
+}: {
+  features: { feature: string; coef: number }[];
+}) {
+  const data = features.slice(0, 10).reverse();
+  return (
+    <ResponsiveContainer width="100%" height={260}>
+      <BarChart layout="vertical" data={data} margin={{ top: 5, right: 15, bottom: 0, left: 30 }}>
+        <CartesianGrid stroke={GRID} strokeDasharray="3 3" />
+        <XAxis type="number" stroke={AXIS} fontSize={11} />
+        <YAxis type="category" dataKey="feature" stroke={AXIS} fontSize={10} width={90} />
+        <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => v.toFixed(3)} />
+        <ReferenceLine x={0} stroke="#64748b" />
+        <Bar dataKey="coef">
+          {data.map((d, i) => (
+            <Cell key={i} fill={d.coef >= 0 ? "#22c55e" : "#ef4444"} />
+          ))}
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ---- Net-of-cost vs selectivity (gross vs net by trade threshold) --------
+export function NetOfCostChart({
+  curve,
+}: {
+  curve: { margin: number; gross_pct: number; net_pct: number; n_trades: number }[];
+}) {
+  const data = curve.map((c) => ({
+    margin: `±${c.margin}`,
+    Gross: Number(c.gross_pct.toFixed(2)),
+    Net: Number(c.net_pct.toFixed(2)),
+    n: c.n_trades,
+  }));
+  return (
+    <ResponsiveContainer width="100%" height={240}>
+      <BarChart data={data} margin={{ top: 5, right: 10, bottom: 0, left: -10 }}>
+        <CartesianGrid stroke={GRID} strokeDasharray="3 3" />
+        <XAxis dataKey="margin" stroke={AXIS} fontSize={11} />
+        <YAxis stroke={AXIS} fontSize={11} unit="%" />
+        <Tooltip contentStyle={tooltipStyle} />
+        <Legend wrapperStyle={{ fontSize: 12 }} />
+        <ReferenceLine y={0} stroke="#64748b" />
+        <Bar dataKey="Gross" fill="#38bdf8" />
+        <Bar dataKey="Net" fill="#ef4444" />
+      </BarChart>
     </ResponsiveContainer>
   );
 }
