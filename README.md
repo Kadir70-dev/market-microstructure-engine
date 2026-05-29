@@ -58,8 +58,9 @@ problem to be measured — not assumed.
 
 ```mermaid
 flowchart LR
-    subgraph Feeds["Market data source"]
-        MT5["MT5 Bridge<br/>(Python sidecar under Wine, read-only)"]
+    subgraph Feeds["Market data sources"]
+        TD["TwelveData REST<br/>(free tier, live)"]
+        MT5["MT5 Bridge<br/>(Python sidecar, read-only)"]
     end
 
     subgraph Engine["C++ Engine (single binary, 30s poll loop)"]
@@ -78,6 +79,7 @@ flowchart LR
     DASH["Next.js Dashboard<br/>(read-only observability)"]
     TG["Telegram<br/>(infra alerts only)"]
 
+    TD --> FETCH
     MT5 --> FETCH
     FETCH --> IND --> VAL
     FETCH --> DB
@@ -105,7 +107,7 @@ For each symbol, every cycle:
 
 | Stage | Module | Output |
 |---|---|---|
-| Fetch | `market_data/mt5_provider` | mid price ((bid+ask)/2) from the read-only MT5 bridge |
+| Fetch | `market_data/` | mid price (TwelveData REST or MT5 bid/ask mid) |
 | Momentum | `indicators/momentum.cpp` | `Bullish` / `Bearish` / `Neutral` (±1e-7 dead-zone) |
 | Volatility | `indicators/volatility.cpp` | stddev of log-returns → `LOW` / `MEDIUM` / `HIGH` (scale-invariant) |
 | Staleness | `validation/validation.cpp` | byte-frozen feed detection (catches weekend/cache/symbol bugs) |
@@ -144,11 +146,10 @@ See sample output in [`agent/hermes/reports/`](agent/hermes/reports/).
 
 ## MT5 bridge
 
-`agent/mt5_bridge/` is a small NDJSON-over-TCP Python sidecar that runs wherever
-MetaTrader 5 lives — on Linux that's **under Wine** (the `MetaTrader5` package is
-Windows-only) — letting the C++ engine pull broker quotes. It is the engine's
-**only** data source. **Read-only:** it serves exactly two operations, `ping`
-and `quote`. There are *no order operations in the code at all*.
+`agent/mt5_bridge/` is a small NDJSON-over-TCP Python sidecar that runs on the
+Windows host where MetaTrader 5 lives, letting the Linux C++ engine pull broker
+quotes. **Phase 1 is read-only:** it serves exactly two operations, `ping` and
+`quote`. There are *no order operations in the code at all*.
 
 Defense in depth against accidental live trading:
 
@@ -158,6 +159,12 @@ Defense in depth against accidental live trading:
   if it connects to a bridge reporting `demo_only=false`.
 - `MT5_BRIDGE_MOCK=true` serves a synthetic random walk so the whole path is
   testable on Linux with no MetaTrader install.
+
+**Linux + Wine** (no Windows host): the Python `MetaTrader5` package is
+Windows-only, so the supported MT5 path is the **MQL5 file-export EA**
+([`mt5_file_export.mq5`](agent/mt5_bridge/mt5_file_export.mq5)) — it runs inside
+MT5-under-Wine and writes a CSV the native-Linux engine reads. While that's
+being stood up, the engine collects via **TwelveData** (REST, native).
 
 Protocol spec: [`agent/mt5_bridge/protocol.md`](agent/mt5_bridge/protocol.md).
 Setup: [`docs/MT5_BRIDGE.md`](docs/MT5_BRIDGE.md).
@@ -325,7 +332,7 @@ and they render here._
 System deps (Ubuntu):
 
 ```bash
-sudo apt install build-essential cmake libspdlog-dev \
+sudo apt install build-essential cmake libspdlog-dev libcurl4-openssl-dev \
                  libsqlite3-dev nlohmann-json3-dev sqlite3 python3
 ```
 
@@ -336,16 +343,14 @@ cmake -S . -B build
 cmake --build build
 ```
 
-Configure the data feed — **MT5 is the only provider** (no API key). The engine
-connects to the read-only MT5 bridge sidecar (default `127.0.0.1:7777`):
+Configure the data feed (one of):
 
 ```bash
-# On Linux, MT5 runs under Wine; the bridge runs under Wine's Python. See
-# docs/MT5_BRIDGE.md. For a dependency-free dry run, use mock mode:
-MT5_BRIDGE_MOCK=true python3 agent/mt5_bridge/mt5_bridge.py   # serves synthetic quotes
+# Option A — TwelveData (default). Put your free-tier key here:
+echo "YOUR_TWELVEDATA_KEY" > config/api_key.txt && chmod 600 config/api_key.txt
 
-# Optional: override the bridge endpoint
-cp ops/.env.example ops/.env   # set MME_MT5_HOST / MME_MT5_PORT (+ optional Telegram)
+# Option B — ops/.env (preferred for deployment; start_engine.sh materializes the key)
+cp ops/.env.example ops/.env   # then fill in TWELVEDATA_API_KEY (+ optional Telegram)
 ```
 
 Run (binaries open paths relative to `build/`, so run from there):
@@ -400,10 +405,9 @@ prove alpha before risk.**
   Hermes report generation are unit-tested and run in CI; the live HTTP fetch,
   the SQLite writer, and the MT5 socket path are not yet covered by automated
   tests (they're exercised manually / by mock mode).
-- **MT5-under-Wine dependency.** The single data source is the MT5 bridge, which
-  on Linux means MetaTrader 5 + the (Windows-only) `MetaTrader5` package running
-  under Wine. That's a heavier, more fragile dependency than a REST feed — the
-  bridge must stay up for collection to continue. Mock mode covers dev/testing.
+- **Free-tier rate limits.** TwelveData free tier is 8 req/min; the engine runs
+  ~6 req/min (3 symbols × 30s). No headroom for a 4th symbol without slowing the
+  cycle.
 - **30s polling, not tick-level.** This is a microstructure *engine* in
   architecture; the current feed resolution is coarse. True microstructure work
   needs the MT5 tick path matured.
@@ -436,10 +440,9 @@ prove alpha before risk.**
   PID-recycling-aware liveness checks, graceful SIGTERM→SIGKILL escalation,
   rotating logs, a 6-point health board, cron + optional systemd auto-recovery,
   and infra-only Telegram alerting.
-- **Clean provider seam.** A single `IMarketDataProvider` interface isolates the
-  feed from the pipeline — the system was migrated from a REST feed to the
-  MT5 bridge by swapping one implementation, with zero changes to indicators,
-  validation, storage, or the schema.
+- **Provider abstraction.** A single `IMarketDataProvider` interface lets the
+  same pipeline run against TwelveData REST or the MT5 bridge, selected by env
+  var, writing to separate DBs for honest side-by-side comparison.
 - **An analyst that grades itself.** Hermes auto-flags its own data-quality
   problems and ties each recommendation to a specific source file.
 

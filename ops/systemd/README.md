@@ -19,17 +19,17 @@ lifecycle (auto-restart, boot-start); timers handle health and cleanup.
 ## Install
 
 ```bash
-# 1. Build + start the MT5 bridge (under Wine) + (recommended) Telegram creds:
+# 1. Build + key + (recommended) Telegram creds first:
 cmake --build build
-ops/probe_mt5_bridge.sh   # MT5 bridge reachable + demo_only (start it under Wine first)
+test -s config/api_key.txt
 cp ops/.env.example ops/.env   # fill TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID for death alerts
 
 # 2. Install + enable everything (start now + on boot):
 sudo ops/install_systemd.sh
 ```
 
-The installer preflights (engine binary, MT5 bridge reachability, Telegram creds),
-copies units to `/etc/systemd/system`, verifies syntax, and enables the engine + both timers.
+The installer preflights (engine binary, API key, Telegram creds), copies units to
+`/etc/systemd/system`, verifies syntax, and enables the engine + both timers.
 
 ## Operate
 

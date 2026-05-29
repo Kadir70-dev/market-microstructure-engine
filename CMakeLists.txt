@@ -6,13 +6,14 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(spdlog REQUIRED)
+find_package(CURL REQUIRED)
 find_package(SQLite3 REQUIRED)
 find_package(nlohmann_json REQUIRED)
 
-# MT5-only: quotes come from the read-only MT5 bridge over a TCP socket
-# (mt5_provider). No HTTP client needed — CURL was a TwelveData-only dependency.
 add_executable(engine
     src/main.cpp
+    src/market_data/market_fetcher.cpp
+    src/market_data/twelvedata_provider.cpp
     src/market_data/mt5_provider.cpp
     src/storage/sqlite_logger.cpp
     src/indicators/momentum.cpp
@@ -27,6 +28,7 @@ target_include_directories(
 target_link_libraries(
     engine PRIVATE
     spdlog::spdlog
+    CURL::libcurl
     SQLite::SQLite3
     nlohmann_json::nlohmann_json
 )

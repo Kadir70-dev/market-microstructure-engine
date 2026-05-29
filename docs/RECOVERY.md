@@ -13,7 +13,8 @@ tail -n 50 logs/engine.log           # crashes after init land here
 | Exit | Meaning | Fix |
 |---|---|---|
 | 2 | Binary missing | `cmake --build build` |
-| 4 | Engine died in <2s | Read `logs/engine.err`. Typical causes: missing `data/` dir, SQLite permission issue. (A down MT5 bridge does NOT kill the engine — it warns and retries.) |
+| 3 | No API key (env unset and `config/api_key.txt` empty) | Populate `ops/.env` or write the file directly |
+| 4 | Engine died in <2s | Read `logs/engine.err`. Typical causes: bad API key (curl error), missing `data/` dir, SQLite permission issue |
 
 ## 2. Engine running, but no new data
 
@@ -25,9 +26,9 @@ tail -n 20 logs/engine.log
 
 Diagnoses:
 - **Frozen feed (weekend/holiday):** `health_check.py` flags `price_not_frozen: WARN`. Not a fault — the market is closed. Engine will resume signal variation when prices update.
-- **MT5 bridge down/unreachable:** `logs/engine.log` shows `MT5 bridge ping failed`. Start the bridge (under Wine) and check `ops/probe_mt5_bridge.sh`; the engine auto-recovers on the next cycle.
-- **Bridge reports `demo_only=false`:** the engine refuses to start (tripwire). Ensure MT5 is logged into a DEMO account; never run live.
-- **No quotes for a symbol:** the broker may not offer it under that name — check the MT5 symbol mapping (`EURUSD`/`XAUUSD`/`XTIUSD`) and the bridge log.
+- **API key rejected:** `logs/engine.log` shows fetch warnings. Re-check key, re-write to `config/api_key.txt`, restart.
+- **Rate limit exceeded:** TwelveData free tier is 8 req/min, 800/day. Engine does 6 req/min. If `engine.log` shows 429s, you're over the daily limit — wait for reset or upgrade plan.
+- **Network outage:** `curl https://api.twelvedata.com/price?symbol=EUR/USD&apikey=$KEY` — if this fails, it's the network, not the engine.
 
 ## 3. Engine alive but logs are silent
 
@@ -39,7 +40,7 @@ strace -p $(cat run/engine.pid)      # see what syscall it's blocked on
                                       # (needs ptrace_scope=0 or sudo)
 ```
 
-If blocked on an MT5 bridge socket read, the engine is fine — just slow (the socket has a timeout). If it's truly hung, `ops/restart_engine.sh`.
+If blocked on a TwelveData HTTP read, the engine is fine — just slow. If it's truly hung, `ops/restart_engine.sh`.
 
 ## 4. Stale PID file (engine listed as running but isn't)
 

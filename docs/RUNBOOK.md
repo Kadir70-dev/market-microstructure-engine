@@ -73,7 +73,7 @@ Copy `ops/.env.example` to `ops/.env` and fill in. `ops/.env` is gitignored.
 
 | Variable | Effect |
 |---|---|
-| `MME_MT5_HOST`, `MME_MT5_PORT` | MT5 bridge endpoint (default `127.0.0.1:7777`). MT5 is the only data source. |
+| `TWELVEDATA_API_KEY` | Written to `config/api_key.txt` by `start_engine.sh` |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Enables Telegram notifications. No-op if unset. |
 | `STALE_LOG_THRESHOLD_S` | health_check WARN if `engine.log` is silent longer than this (default 120) |
 | `LONDON_OPEN_UTC`, `NY_CLOSE_UTC` | Reference values for crontab scheduling |

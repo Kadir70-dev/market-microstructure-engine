@@ -15,7 +15,8 @@ The first market-open run. Do these in order. None of them place trades — this
 - [ ] Configure environment
   ```bash
   cp ops/.env.example ops/.env
-  # Optional: set MME_MT5_HOST/MME_MT5_PORT (defaults 127.0.0.1:7777) + Telegram
+  # Edit ops/.env, populate at minimum TWELVEDATA_API_KEY
+  # (Telegram is optional — leave blank to skip notifications)
   chmod 600 ops/.env
   ```
 - [ ] Sanity-run all scripts (no engine, no API calls)
@@ -38,11 +39,11 @@ The first market-open run. Do these in order. None of them place trades — this
   ```bash
   df -h .
   ```
-- [ ] Pre-warm: confirm the MT5 bridge is up and demo-only
+- [ ] Pre-warm: one-shot test fetch to confirm the API key works
   ```bash
-  ops/probe_mt5_bridge.sh
-  # expect: PROBE OK: bridge alive, demo_only=true
-  # (Linux dev without MT5: MT5_BRIDGE_MOCK=true python3 agent/mt5_bridge/mt5_bridge.py &)
+  KEY=$(cat config/api_key.txt)
+  curl -s "https://api.twelvedata.com/price?symbol=EUR/USD&apikey=$KEY"
+  # expect: {"price":"1.xxxxx"}
   ```
 
 ## Monday 06:30 UTC (London pre-open)
