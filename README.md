@@ -1,5 +1,10 @@
 # Market Microstructure Engine
 
+[![CI](https://github.com/Kadir70-dev/market-microstructure-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/Kadir70-dev/market-microstructure-engine/actions/workflows/ci.yml)
+![C++17](https://img.shields.io/badge/C%2B%2B-17-blue)
+![Python 3](https://img.shields.io/badge/Python-3-blue)
+![No live trading](https://img.shields.io/badge/live%20trading-disabled%20by%20design-critical)
+
 A C++ market-intelligence engine that polls live FX / metals / energy quotes,
 runs them through a momentum + volatility + validation pipeline, and persists
 every observation to SQLite as **immutable ground truth** — so signals and
@@ -202,6 +207,26 @@ Look-ahead and survivorship gates it enforces:
 
 Sample snapshots: [`reports/snapshots/`](reports/snapshots/).
 
+### Tests & CI
+
+The pure logic is covered by tests that run on every push/PR via
+[GitHub Actions](.github/workflows/ci.yml):
+
+- **C++ unit tests** (`tests/unit_tests.cpp`, 66 assertions, zero external test
+  framework) — `validation.cpp` (staleness, UTC session boundaries, confidence,
+  trade-quality, grading) and `evaluation/metrics.cpp` (gross/net accuracy, cost
+  model, neutral-is-non-trade, no divide-by-zero), registered with CTest.
+- **Hermes Python tests** (`agent/hermes/tests/`, stdlib `unittest`) — signal
+  summarisation, confidence-accuracy exclusion rules, problem detection, the
+  read-only DB boundary, and an end-to-end report-file generation against a
+  temporary SQLite DB.
+
+```bash
+ctest --test-dir build --output-on-failure        # both suites
+./build/unit_tests                                 # C++ only
+python3 -m unittest agent.hermes.tests.test_daily_report -v   # Hermes only
+```
+
 > On the current small sample, momentum is ~100% `Neutral` and net edge is
 > ~zero. That is the *correct* honest output for this much data — the engine is
 > reporting "no signal," not inventing one. Establishing real edge requires
@@ -299,9 +324,10 @@ prove alpha before risk.**
 - **No demonstrated edge yet.** Current data is too small and shows ~zero net
   return — expected at this stage, but it means this is research infra, not a
   proven strategy.
-- **No automated tests / CI.** Metric and validation logic are factored to be
-  *testable* in isolation, but tests aren't written yet. This is the top tech
-  debt item.
+- **Tests cover the pure logic, not the I/O edges.** Validation, metrics, and
+  Hermes report generation are unit-tested and run in CI; the live HTTP fetch,
+  the SQLite writer, and the MT5 socket path are not yet covered by automated
+  tests (they're exercised manually / by mock mode).
 - **Free-tier rate limits.** TwelveData free tier is 8 req/min; the engine runs
   ~6 req/min (3 symbols × 30s). No headroom for a 4th symbol without slowing the
   cycle.
@@ -347,7 +373,9 @@ prove alpha before risk.**
 
 ```
 include/, src/        C++ engine — market_data / indicators / validation / storage / evaluation
-agent/hermes/         Python read-only daily analyst (Hermes)
+tests/                C++ unit tests (CTest, zero external framework)
+.github/workflows/    CI: build + test on every push/PR
+agent/hermes/         Python read-only daily analyst (Hermes) — tests in agent/hermes/tests/
 agent/mt5_bridge/     Python MT5 sidecar (read-only, demo-gated)
 ops/                  Production scripts: start/stop/status/health/recovery/cron/systemd
 docs/                 Operations architecture, runbook, recovery, Monday checklist, MT5 setup

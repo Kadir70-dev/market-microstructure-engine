@@ -48,3 +48,32 @@ target_link_libraries(
     engine_backtest PRIVATE
     SQLite::SQLite3
 )
+
+# ── Unit tests ────────────────────────────────────────────────────────────
+# Zero external test framework. Tests the pure logic (validation + metrics) by
+# compiling those sources directly into a small test binary, registered with
+# CTest. Run with `ctest --test-dir build --output-on-failure` (or `ctest -V`).
+option(BUILD_TESTING "Build unit tests" ON)
+if(BUILD_TESTING)
+    enable_testing()
+
+    add_executable(unit_tests
+        tests/unit_tests.cpp
+        src/validation/validation.cpp
+        src/evaluation/metrics.cpp
+    )
+    target_include_directories(unit_tests PRIVATE include)
+
+    add_test(NAME unit_tests COMMAND unit_tests)
+
+    # Hermes (Python) tests — run via the stdlib unittest runner from repo root.
+    find_package(Python3 COMPONENTS Interpreter)
+    if(Python3_Interpreter_FOUND)
+        add_test(
+            NAME hermes_tests
+            COMMAND ${Python3_EXECUTABLE} -m unittest
+                    agent.hermes.tests.test_daily_report -v
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        )
+    endif()
+endif()

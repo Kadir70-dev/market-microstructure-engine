@@ -1,0 +1,44 @@
+name: CI
+
+# Build the C++ engine + backtest and run the full test suite (C++ unit tests
+# via CTest, Hermes Python tests via unittest). No secrets, no network feed —
+# everything here is offline and deterministic.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake \
+            libspdlog-dev libcurl4-openssl-dev libsqlite3-dev nlohmann-json3-dev \
+            sqlite3 python3
+
+      - name: Configure (CMake)
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Run tests (CTest — C++ unit tests + Hermes Python tests)
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Smoke-check binaries exist
+        run: |
+          test -x build/engine
+          test -x build/engine_backtest
+          test -x build/unit_tests
+          echo "All binaries built."

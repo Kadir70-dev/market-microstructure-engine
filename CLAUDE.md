@@ -38,7 +38,7 @@ Maturity by dimension (1–10):
 | Ops / survivability | 8 | Idempotent lifecycle, health board, recovery, cron+systemd |
 | Documentation | 8 | README + this file + 5 ops docs + protocol spec |
 | Safety (no-trade firewall) | 9 | Execution path absent + double demo tripwires |
-| Test coverage | 2 | Code is testable; tests not yet written (top debt) |
+| Test coverage | 5 | Pure logic unit-tested (66 C++ checks + 8 Hermes tests) in CI; I/O edges not yet covered |
 | Demonstrated alpha | 1 | Intentionally unproven; not enough data yet |
 | **Portfolio readiness** | **8** | Strong, honest, recruiter-ready after Week 0 |
 
@@ -76,9 +76,15 @@ python3 -m agent.hermes.daily_report --date 2026-05-24
 python3 ops/health_check.py [--json] [--skip-process]
 ./ops/run_eod_pipeline.sh [YYYY-MM-DD]        # health + backtest + Hermes snapshots
 crontab ops/crontab.example                   # session schedule + health probe
+
+# tests
+ctest --test-dir build --output-on-failure    # C++ unit tests + Hermes tests
+./build/unit_tests                             # C++ only (66 checks)
+python3 -m unittest agent.hermes.tests.test_daily_report -v   # Hermes only
 ```
 
-No test suite, no linter config, no CI yet.
+Tests run in CI (`.github/workflows/ci.yml`) on every push/PR to `main`. No
+linter config yet.
 
 ---
 
@@ -105,6 +111,9 @@ market-microstructure-engine/
 │   ├── validation/         validation.cpp
 │   ├── storage/            sqlite_logger.cpp (best-effort; never crashes the engine)
 │   └── evaluation/         main.cpp (SQL I/O + table printing), metrics.cpp (pure math)
+│
+├── tests/                  unit_tests.cpp — zero-dep C++ tests (validation + metrics), CTest-registered.
+├── .github/workflows/      ci.yml — build + CTest on every push/PR to main.
 │
 ├── agent/
 │   ├── hermes/             Read-only Python analyst. daily_report.py + db.py. Writes reports/*.md.
@@ -320,8 +329,10 @@ Liveness is PID-recycling-aware: it checks `kill -0` **and** `comm == engine`.
 
 ## 15. Known issues / technical debt
 
-1. **No tests, no CI.** Highest-value next infra step. `evaluation/metrics.cpp`
-   and `validation.cpp` are the obvious first unit-test targets.
+1. **Tests cover pure logic only.** `validation.cpp`, `evaluation/metrics.cpp`,
+   and Hermes report generation are unit-tested in CI. The HTTP fetcher,
+   SQLite writer, and MT5 socket path are NOT yet covered — add integration
+   tests (mock provider + temp DB) next. No linter config yet either.
 2. **Volatility thresholds hardcoded** — calibrate from `signals` percentiles.
 3. **Momentum dead-zone is a fixed ±1e-7** across all instruments — should scale
    with each symbol's recent volatility.
