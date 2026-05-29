@@ -13,8 +13,8 @@ system is wired, what is real, and what must never happen.**
 
 ## 1. What this is (one paragraph)
 
-A C++ market-intelligence engine. Every 30s it polls live quotes (TwelveData
-REST by default, or an MT5 read-only bridge), runs them through a
+A C++ market-intelligence engine. Every 30s it polls live quotes from the
+**MT5 read-only bridge (the only data source)**, runs them through a
 momentum + volatility + validation pipeline, and persists raw ticks + derived
 signals + quality scores to SQLite as immutable ground truth. A separate
 read-only C++ backtest binary and a read-only Python "Hermes" analyst evaluate
@@ -48,11 +48,11 @@ Maturity by dimension (1–10):
 
 CMake out-of-source build. Two executables: `engine` (live loop) and
 `engine_backtest` (read-only eval). **Both must run from `build/`** — they open
-`../config/api_key.txt` and `../data/engine.db` relative to CWD.
+`../data/engine.db` relative to CWD.
 
 ```bash
-# deps (Ubuntu)
-sudo apt install build-essential cmake libspdlog-dev libcurl4-openssl-dev \
+# deps (Ubuntu) — no libcurl (MT5-only; quotes come over a TCP socket, not HTTP)
+sudo apt install build-essential cmake libspdlog-dev \
                  libsqlite3-dev nlohmann-json3-dev sqlite3 python3
 
 # build
@@ -64,9 +64,11 @@ cd build && ./engine                          # live 30s loop
 cd build && ./engine_backtest                 # eval vs accumulated data
 cd build && ./engine_backtest /path/other.db  # alt DB
 
-# provider selection (env)
-MME_PROVIDER=mt5 MME_MT5_HOST=127.0.0.1 MME_MT5_PORT=7777 ./engine
-MME_DB_PATH=../data/mt5.db ./engine           # write to a separate DB
+# MT5 bridge endpoint (env; defaults shown). MT5 is the only provider.
+MME_MT5_HOST=127.0.0.1 MME_MT5_PORT=7777 ./engine
+MME_DB_PATH=../data/verify.db ./engine        # write to a separate DB (e.g. a test run)
+# dependency-free dry run: start the mock bridge first
+MT5_BRIDGE_MOCK=true python3 -m agent.mt5_bridge.mt5_bridge  # (or: python3 agent/mt5_bridge/mt5_bridge.py)
 
 # Hermes daily report (from repo root)
 python3 -m agent.hermes.daily_report --date 2026-05-24
@@ -97,16 +99,15 @@ market-microstructure-engine/
 ├── CLAUDE.md               This file — engineering source of truth.
 │
 ├── include/                Public headers, mirror of src/ layout.
-│   ├── market_data/        provider.hpp (interface), twelvedata_provider, mt5_provider, market_fetcher
+│   ├── market_data/        provider.hpp (interface), mt5_provider (the only provider)
 │   ├── indicators/         momentum.hpp, volatility.hpp
 │   ├── validation/         validation.hpp (staleness, session, confidence, quality)
 │   ├── storage/            sqlite_logger.hpp
 │   └── evaluation/         metrics.hpp (pure, testable metric math)
 │
 ├── src/
-│   ├── main.cpp            Control loop, signal handling, log setup, provider selection, processSymbol().
-│   ├── market_data/        HTTP fetch (libcurl) + provider impls. NOTE: market_fetcher logs raw API
-│   │                       response at info — can leak the key-bearing URL. Scrub if you touch it.
+│   ├── main.cpp            Control loop, signal handling, log setup, MT5 bridge connect, processSymbol().
+│   ├── market_data/        mt5_provider.cpp — NDJSON-over-TCP client to the read-only MT5 bridge.
 │   ├── indicators/         momentum.cpp, volatility.cpp
 │   ├── validation/         validation.cpp
 │   ├── storage/            sqlite_logger.cpp (best-effort; never crashes the engine)
@@ -139,7 +140,6 @@ market-microstructure-engine/
 ├── docs/                   OPERATIONS.md, RUNBOOK.md, RECOVERY.md, MONDAY_CHECKLIST.md, MT5_BRIDGE.md
 ├── reports/snapshots/      Committed sample backtest/health snapshots (showcase)
 │
-├── config/api_key.txt      SECRET — gitignored. TwelveData key, one line.
 ├── data/engine.db          SQLite ground truth — gitignored.
 ├── logs/                   engine.log (rotating 10MB×7), engine.out/.err, ops.log — gitignored.
 └── run/                    engine.pid — gitignored.
@@ -243,9 +243,10 @@ It has no capability to — keep it that way.
 ## 10. MT5 bridge (read-only, demo-gated)
 
 `agent/mt5_bridge/mt5_bridge.py` — NDJSON-over-TCP sidecar (default
-`127.0.0.1:7777`), runs on the Windows MT5 host. **Only `ping` and `quote` ops
-exist. No order ops in the code.** Select it from the engine with
-`MME_PROVIDER=mt5`.
+`127.0.0.1:7777`), runs wherever MT5 lives (on Linux: **under Wine**, since the
+`MetaTrader5` package is Windows-only). **It is the engine's only data source.**
+**Only `ping` and `quote` ops exist. No order ops in the code.** The engine
+connects automatically; override the endpoint with `MME_MT5_HOST`/`MME_MT5_PORT`.
 
 Two independent demo tripwires:
 1. Bridge refuses to start against a non-DEMO account unless **both**
@@ -294,7 +295,7 @@ Liveness is PID-recycling-aware: it checks `kill -0` **and** `comm == engine`.
    `main.cpp` or `mt5_bridge.py`.
 4. **Backtest gates stay.** Don't relax the look-ahead/staleness exclusions to
    make numbers look better.
-5. **Never commit secrets.** `config/api_key.txt` and `ops/.env` are gitignored.
+5. **Never commit secrets.** `ops/.env` (Telegram/MT5 creds) is gitignored.
    The fetcher logs raw API responses at info — scrub the key-bearing URL if you
    edit `market_fetcher.cpp` before sharing logs.
 6. **The DB is ground truth.** Cold-path tools open it read-only; keep it that way.
@@ -322,13 +323,15 @@ Liveness is PID-recycling-aware: it checks `kill -0` **and** `comm == engine`.
 
 ## 14. Common debugging steps
 
-- **Engine won't start:** `cat logs/engine.err`; check `config/api_key.txt`
-  non-empty; confirm you're in `build/` (paths are relative).
+- **Engine won't start:** `cat logs/engine.err`; confirm the MT5 bridge is
+  reachable (`ops/probe_mt5_bridge.sh`) and reports `demo_only=true`; confirm
+  you're in `build/` (paths are relative). The engine logs a ping warning and
+  retries each cycle if the bridge is down — it does not exit.
 - **"NOT RUNNING" but you started it:** stale PID — `status_engine.sh` reports
   it; `start_engine.sh` auto-cleans stale PIDs.
-- **Feed looks frozen:** `health_check.py` `price_not_frozen` WARN. Could be
-  legitimately closed market, rate-limit, or symbol resolution. Check
-  `log_health.sh` error counts and TwelveData rate-limit headers in the log.
+- **Feed looks frozen:** `health_check.py` `price_not_frozen` WARN. Could be a
+  legitimately closed market, a stalled bridge, or a symbol the broker doesn't
+  quote. Check `ops/probe_mt5_bridge.sh` and the bridge's own log.
 - **Backtest shows N=0 / all neutral:** expected on small/low-vol data — not a
   bug. Momentum dead-zone (±1e-7) + LOW vol → mostly Neutral. Collect more,
   session-aligned.
@@ -349,12 +352,11 @@ Liveness is PID-recycling-aware: it checks `kill -0` **and** `comm == engine`.
 2. **Volatility thresholds hardcoded** — calibrate from `signals` percentiles.
 3. **Momentum dead-zone is a fixed ±1e-7** across all instruments — should scale
    with each symbol's recent volatility.
-4. **`market_fetcher.cpp` logs raw API responses at info** — potential key leak
-   in shared logs.
-5. **Free-tier rate ceiling** (8 req/min) leaves no room for a 4th symbol at 30s.
-6. **No demonstrated edge** — current net return ~0 (correct, honest, but
+4. **MT5-under-Wine is a heavier, more fragile feed** than a REST API — the
+   bridge must stay up (Wine + Windows-only `MetaTrader5` pkg). Mock mode covers
+   dev. There is no second provider/fallback by design (MT5-only).
+5. **No demonstrated edge** — current net return ~0 (correct, honest, but
    unproven).
-7. **No dashboard** — roadmap Phase 4.
 
 ---
 

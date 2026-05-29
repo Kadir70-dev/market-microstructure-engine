@@ -24,14 +24,18 @@ UNIT_DST="/etc/systemd/system"
 # --- Preflight checks ----------------------------------------------------
 echo "==> Preflight"
 [[ -x "$PROJECT_ROOT/build/engine" ]] || { echo "FATAL: build/engine missing — run 'cmake --build build' first"; exit 2; }
-if [[ ! -s "$PROJECT_ROOT/config/api_key.txt" ]]; then
-    echo "FATAL: config/api_key.txt missing/empty — engine cannot fetch quotes"; exit 3
+# MT5-only: the data source is the MT5 bridge, not an API key. Warn (don't fail)
+# if it's unreachable now — the engine retries each cycle, and the bridge may be
+# started after this installer.
+host="${MME_MT5_HOST:-127.0.0.1}"; port="${MME_MT5_PORT:-7777}"
+if ! python3 -c "import socket;socket.create_connection(('$host',$port),timeout=2).close()" 2>/dev/null; then
+    echo "WARN: MT5 bridge not reachable at $host:$port — start it (under Wine) before/after install."
 fi
 if ! grep -qE '^TELEGRAM_BOT_TOKEN=.+' "$PROJECT_ROOT/ops/.env" 2>/dev/null; then
     echo "WARN: TELEGRAM_BOT_TOKEN not set in ops/.env — death alerts will be silent."
     echo "      Fill ops/.env (copy from ops/.env.example) to enable Telegram paging."
 fi
-echo "    build/engine: OK, config/api_key.txt: OK"
+echo "    build/engine: OK"
 
 # --- Install units -------------------------------------------------------
 echo "==> Installing units to $UNIT_DST"

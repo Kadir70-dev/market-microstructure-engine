@@ -22,20 +22,12 @@ if [[ -f "$PID_FILE" ]]; then
     rm -f "$PID_FILE"
 fi
 
-# Engine reads ../config/api_key.txt relative to CWD, so we must cd to build/.
+# Engine writes ../data/engine.db relative to CWD, so we must cd to build/.
 cd "$PROJECT_ROOT/build"
 
-# If .env supplied a key and the file is missing, materialize it.
-# Env stays the source of truth; the file is a runtime artifact.
-if [[ -n "${TWELVEDATA_API_KEY:-}" ]]; then
-    printf '%s\n' "$TWELVEDATA_API_KEY" > "$PROJECT_ROOT/config/api_key.txt"
-    chmod 600 "$PROJECT_ROOT/config/api_key.txt"
-fi
-
-if [[ ! -s "$PROJECT_ROOT/config/api_key.txt" ]]; then
-    ops_log "FATAL: no API key (neither TWELVEDATA_API_KEY env nor config/api_key.txt)"
-    exit 3
-fi
+# MT5-only: the engine pulls quotes from the read-only MT5 bridge sidecar
+# (MME_MT5_HOST:MME_MT5_PORT, default 127.0.0.1:7777). No API key needed.
+# The engine pings the bridge at startup and refuses to run a non-demo account.
 
 # Append (don't truncate) so we can see history across restarts.
 nohup ./engine >> "$ENGINE_OUT" 2>> "$ENGINE_ERR" &

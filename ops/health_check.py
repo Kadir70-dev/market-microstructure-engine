@@ -10,7 +10,7 @@ Checks:
   2. db_present      — engine.db exists and is readable
   3. db_recent_write — newest tick is within (5 × poll_interval) seconds
   4. log_recent      — engine.log modified within STALE_LOG_THRESHOLD_S
-  5. api_key_present — config/api_key.txt non-empty OR TWELVEDATA_API_KEY set
+  5. mt5_bridge       — MT5 bridge reachable AND reports demo_only=true
   6. price_not_frozen — latest 5 ticks per symbol are not byte-identical
                         (mirrors validation/isStale; flags feed problems)
 
@@ -37,7 +37,9 @@ LOG_DIR      = PROJECT_ROOT / "logs"
 PID_FILE     = RUN_DIR / "engine.pid"
 ENGINE_LOG   = LOG_DIR / "engine.log"
 DB_PATH      = PROJECT_ROOT / "data" / "engine.db"
-API_KEY_FILE = PROJECT_ROOT / "config" / "api_key.txt"
+
+MT5_HOST = os.environ.get("MME_MT5_HOST", "127.0.0.1")
+MT5_PORT = int(os.environ.get("MME_MT5_PORT", "7777"))
 
 POLL_INTERVAL_S       = 30   # engine kSleepSeconds
 DB_STALENESS_FACTOR   = 5    # tolerate up to 5 missed cycles before failing
@@ -131,16 +133,35 @@ def check_log_recent() -> dict:
     return check("log_recent", Status.PASS, f"last write {age}s ago")
 
 
-def check_api_key_present() -> dict:
-    if os.environ.get("TWELVEDATA_API_KEY"):
-        return check("api_key_present", Status.PASS, "from env")
-    if API_KEY_FILE.exists() and API_KEY_FILE.stat().st_size > 0:
-        return check("api_key_present", Status.PASS, f"from {API_KEY_FILE}")
-    return check(
-        "api_key_present",
-        Status.FAIL,
-        "no TWELVEDATA_API_KEY env and config/api_key.txt missing/empty",
-    )
+def check_mt5_bridge() -> dict:
+    """MT5 is the only data source: confirm the read-only bridge is reachable
+    and reports demo_only=true. WARN (not FAIL) on unreachable — the engine
+    retries each cycle and the bridge may briefly restart."""
+    import socket
+
+    try:
+        with socket.create_connection((MT5_HOST, MT5_PORT), timeout=3) as s:
+            s.sendall(b'{"op":"ping"}\n')
+            buf = b""
+            while not buf.endswith(b"\n") and len(buf) < 65536:
+                chunk = s.recv(4096)
+                if not chunk:
+                    break
+                buf += chunk
+    except OSError as e:
+        return check("mt5_bridge", Status.WARN,
+                     f"unreachable at {MT5_HOST}:{MT5_PORT} ({e})")
+    try:
+        reply = json.loads(buf.decode("utf-8", "replace") or "{}")
+    except json.JSONDecodeError as e:
+        return check("mt5_bridge", Status.WARN, f"bad ping reply: {e}")
+    if not reply.get("ok"):
+        return check("mt5_bridge", Status.WARN, "bridge returned not-ok")
+    if not reply.get("demo_only"):
+        return check("mt5_bridge", Status.FAIL,
+                     "bridge reports demo_only=false — tripwire (no live trading)")
+    return check("mt5_bridge", Status.PASS,
+                 f"reachable at {MT5_HOST}:{MT5_PORT}, demo_only=true")
 
 
 def check_price_not_frozen() -> dict:
@@ -174,7 +195,7 @@ CHECKS = [
     check_db_present,
     check_db_recent_write,
     check_log_recent,
-    check_api_key_present,
+    check_mt5_bridge,
     check_price_not_frozen,
 ]
 

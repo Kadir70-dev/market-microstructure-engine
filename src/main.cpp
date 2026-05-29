@@ -13,7 +13,6 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 
 #include "market_data/provider.hpp"
-#include "market_data/twelvedata_provider.hpp"
 #include "market_data/mt5_provider.hpp"
 #include "storage/sqlite_logger.hpp"
 #include "indicators/momentum.hpp"
@@ -22,21 +21,14 @@
 
 namespace {
 
-enum class ProviderKind { TwelveData, MT5 };
-
 struct SymbolDef {
-    const char* display;       // logs / DB row key
-    const char* twelvedata;    // API name for TwelveData
-    const char* mt5;           // API name for MT5 (broker-dependent)
+    const char* display;   // logs / DB row key
+    const char* mt5;       // MT5 broker symbol name
 };
 
-constexpr SymbolDef kEURUSD = { "EUR/USD", "EUR/USD", "EURUSD" };
-constexpr SymbolDef kGold   = { "XAU/USD", "XAU/USD", "XAUUSD" };
-constexpr SymbolDef kWTI    = { "USO",     "USO",     "XTIUSD" };
-
-const char* providerApi(const SymbolDef& s, ProviderKind k) {
-    return k == ProviderKind::MT5 ? s.mt5 : s.twelvedata;
-}
+constexpr SymbolDef kEURUSD = { "EUR/USD", "EURUSD" };
+constexpr SymbolDef kGold   = { "XAU/USD", "XAUUSD" };
+constexpr SymbolDef kWTI    = { "USO",     "XTIUSD" };
 
 std::string envOr(const char* key, const std::string& dflt) {
     const char* v = std::getenv(key);
@@ -103,35 +95,6 @@ void interruptibleSleep(int seconds) {
 
 }
 
-std::string readApiKey() {
-
-    std::ifstream file(
-        "../config/api_key.txt"
-    );
-
-    if(!file.is_open()) {
-
-        throw std::runtime_error(
-            "Could not open API key file"
-        );
-    }
-
-    std::string apiKey;
-
-    std::getline(
-        file,
-        apiKey
-    );
-
-    if(apiKey.empty()) {
-        throw std::runtime_error(
-            "API key file is empty"
-        );
-    }
-
-    return apiKey;
-}
-
 void updatePriceHistory(
     std::vector<double>& prices,
     double newPrice
@@ -148,11 +111,10 @@ bool processSymbol(
     const SymbolDef& sym,
     std::vector<double>& prices,
     market_data::IMarketDataProvider& provider,
-    ProviderKind kind,
     SqliteLogger& logger
 ) {
 
-    double price = provider.fetchQuote(providerApi(sym, kind)).price;
+    double price = provider.fetchQuote(sym.mt5).price;
 
     if(price <= 0) {
         spdlog::warn(
@@ -231,46 +193,31 @@ int main() {
             "Market Intelligence Engine Started"
         );
 
-        // Provider selection. Default = TwelveData (legacy behavior preserved
-        // for existing deployment). Set MME_PROVIDER=mt5 to route through the
-        // Python sidecar at MME_MT5_HOST:MME_MT5_PORT.
-        std::string providerName = envOr("MME_PROVIDER", "twelvedata");
-        ProviderKind kind = (providerName == "mt5")
-                            ? ProviderKind::MT5
-                            : ProviderKind::TwelveData;
+        // MT5 is the only data provider. Connect to the read-only bridge
+        // sidecar at MME_MT5_HOST:MME_MT5_PORT (default 127.0.0.1:7777).
+        std::string host = envOr("MME_MT5_HOST", "127.0.0.1");
+        int         port = std::stoi(envOr("MME_MT5_PORT", "7777"));
+        spdlog::info("Provider: MT5 ({}:{}) — read-only, no trading", host, port);
+        auto mt5p = std::make_unique<market_data::MT5Provider>(host, port);
 
-        std::unique_ptr<market_data::IMarketDataProvider> provider;
-
-        if(kind == ProviderKind::MT5) {
-            std::string host = envOr("MME_MT5_HOST", "127.0.0.1");
-            int         port = std::stoi(envOr("MME_MT5_PORT", "7777"));
-            spdlog::info("Provider: MT5 ({}:{}) — read-only Phase 1", host, port);
-            auto mt5p = std::make_unique<market_data::MT5Provider>(host, port);
-
-            // Defense in depth: confirm bridge is reachable AND reports demo_only=true.
-            std::string account; bool demo_only = false;
-            if(mt5p->ping(&account, &demo_only)) {
-                spdlog::info("MT5 bridge ping OK — account={} demo_only={}",
-                             account, demo_only ? "Y" : "N");
-                if(!demo_only) {
-                    throw std::runtime_error(
-                        "MT5 bridge reports demo_only=false — refusing to start. "
-                        "Phase 1 is read-only, but a non-demo account is a tripwire."
-                    );
-                }
-            } else {
-                spdlog::warn("MT5 bridge ping failed at startup — will retry on next cycle");
+        // Defense in depth: confirm bridge is reachable AND reports demo_only=true.
+        std::string account; bool demo_only = false;
+        if(mt5p->ping(&account, &demo_only)) {
+            spdlog::info("MT5 bridge ping OK — account={} demo_only={}",
+                         account, demo_only ? "Y" : "N");
+            if(!demo_only) {
+                throw std::runtime_error(
+                    "MT5 bridge reports demo_only=false — refusing to start. "
+                    "This system is read-only; a non-demo account is a tripwire."
+                );
             }
-
-            provider = std::move(mt5p);
         } else {
-            std::string apiKey = readApiKey();
-            spdlog::info("Provider: TwelveData (REST)");
-            provider = std::make_unique<market_data::TwelveDataProvider>(apiKey);
+            spdlog::warn("MT5 bridge ping failed at startup — will retry on next cycle");
         }
 
-        // DB path is overridable so MT5 and TwelveData paths can write to
-        // separate DBs during Phase 1 side-by-side comparison.
+        std::unique_ptr<market_data::IMarketDataProvider> provider = std::move(mt5p);
+
+        // DB path is overridable (e.g. a separate DB for a verification run).
         std::string dbPath = envOr("MME_DB_PATH", "../data/engine.db");
         SqliteLogger logger(dbPath);
 
@@ -280,9 +227,9 @@ int main() {
             crudePrices;
 
         // Warm-up fetch.
-        processSymbol(kEURUSD, eurusdPrices, *provider, kind, logger);
-        processSymbol(kGold,   goldPrices,   *provider, kind, logger);
-        processSymbol(kWTI,    crudePrices,  *provider, kind, logger);
+        processSymbol(kEURUSD, eurusdPrices, *provider, logger);
+        processSymbol(kGold,   goldPrices,   *provider, logger);
+        processSymbol(kWTI,    crudePrices,  *provider, logger);
 
         while(!g_stop_requested) {
 
@@ -293,9 +240,9 @@ int main() {
                 "================================="
             );
 
-            processSymbol(kEURUSD, eurusdPrices, *provider, kind, logger);
-            processSymbol(kGold,   goldPrices,   *provider, kind, logger);
-            processSymbol(kWTI,    crudePrices,  *provider, kind, logger);
+            processSymbol(kEURUSD, eurusdPrices, *provider, logger);
+            processSymbol(kGold,   goldPrices,   *provider, logger);
+            processSymbol(kWTI,    crudePrices,  *provider, logger);
         }
 
         spdlog::info(

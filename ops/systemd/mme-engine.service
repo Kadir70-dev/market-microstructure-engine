@@ -11,8 +11,10 @@
 #   sudo systemctl enable --now mme-engine mme-health.timer mme-cleanup.timer
 #   systemctl status mme-engine ; journalctl -u mme-engine -f
 #
-# The engine reads ../config/api_key.txt relative to CWD, so WorkingDirectory is
-# build/. Ensure config/api_key.txt is non-empty before starting.
+# MT5-only: the engine pulls quotes from the read-only MT5 bridge sidecar
+# (default 127.0.0.1:7777). Make sure the bridge is running (under Wine) — the
+# engine pings it at startup, refuses any non-demo account, and retries per cycle.
+# Override the bridge endpoint with Environment=MME_MT5_HOST=.. MME_MT5_PORT=..
 
 [Unit]
 Description=Market Microstructure Engine (24/5 data collection, read-only, no trading)

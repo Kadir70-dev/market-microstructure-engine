@@ -251,7 +251,7 @@ def make_recommendations(
 
     if regime["stale_pct"] >= 30:
         recs.append(
-            "Investigate stale-signal source: check TwelveData rate-limit headers in "
+            "Investigate stale-signal source: check the MT5 bridge log for missing/zero quotes and "
             "logs and confirm `market_fetcher.cpp` is parsing fresh responses, not cache."
         )
 
