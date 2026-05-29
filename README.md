@@ -428,4 +428,3 @@ See [LICENSE](LICENSE) if present; otherwise all rights reserved by the author.
 
 _Built as a serious systems-and-quant engineering exercise: honest data,
 honest backtests, honest limits._
-# market-microstructure-engine
