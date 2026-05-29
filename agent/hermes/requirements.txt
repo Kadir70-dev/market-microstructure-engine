@@ -1,0 +1,2 @@
+# Phase 1: standard library only (sqlite3, datetime, argparse, statistics).
+# Future phases will add: anthropic (LLM agents), pandas (heavy aggregation if needed).
