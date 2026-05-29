@@ -1,0 +1,23 @@
+# Example crontab for the market-microstructure-engine.
+# Install with:   crontab ops/crontab.example
+# Inspect with:   crontab -l
+#
+# Times are in the system local time of the box running cron. If your VPS is
+# UTC (recommended), these run as-is. Otherwise, adjust to keep the engine up
+# during London open through NY close.
+#
+# Mon-Fri: start engine 30 min before London open (06:30 UTC), stop after
+# NY session winds down (21:30 UTC). Health check every 10 minutes during
+# session hours so a silent crash gets caught quickly.
+
+PROJECT=/home/kadir70/market-microstructure-engine
+
+# Pre-session start (Mon-Fri 06:30 UTC)
+30 6  * * 1-5  $PROJECT/ops/run_session_start.sh
+
+# End-of-session: stop engine + generate Hermes report (Mon-Fri 21:30 UTC)
+30 21 * * 1-5  $PROJECT/ops/run_session_end.sh
+
+# Health probe every 10 min during session window (Mon-Fri 07-21 UTC).
+# Exit code 1 (FAIL) triggers Telegram via notify; WARN-only stays silent.
+*/10 7-21 * * 1-5  $PROJECT/ops/run_health_probe.sh

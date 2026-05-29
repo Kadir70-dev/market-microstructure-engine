@@ -1,0 +1,48 @@
+# market-microstructure-engine — optional systemd unit (auto-start + auto-restart).
+#
+# This is an ALTERNATIVE to the cron + PID-file lifecycle (ops/start_engine.sh +
+# crontab.example). Use ONE or the other, not both — they would fight over the
+# process. Pick systemd if you want kernel-supervised restart-on-crash;
+# pick cron if you want session-windowed start/stop without root.
+#
+# Install (adjust User= and paths to your box first):
+#   sudo cp ops/systemd/mme-engine.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now mme-engine          # start now + on boot
+#   systemctl status mme-engine
+#   journalctl -u mme-engine -f                     # live logs
+#
+# The engine reads ../config/api_key.txt relative to CWD, so WorkingDirectory
+# is the build/ dir. Ensure config/api_key.txt exists (or set TWELVEDATA_API_KEY
+# in the EnvironmentFile) before starting.
+
+[Unit]
+Description=Market Microstructure Engine (data-collection loop, read-only, no trading)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kadir70
+WorkingDirectory=/home/kadir70/market-microstructure-engine/build
+EnvironmentFile=-/home/kadir70/market-microstructure-engine/ops/.env
+ExecStart=/home/kadir70/market-microstructure-engine/build/engine
+
+# Failure recovery: restart on any non-clean exit, with backoff so a crash-loop
+# doesn't hammer the API (and burn the free-tier daily quota).
+Restart=always
+RestartSec=10
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Clean shutdown: the engine handles SIGTERM (interruptibleSleep → ~1s exit).
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+# Light hardening — this process only needs to read config and write data/logs.
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
