@@ -1,0 +1,15 @@
+# Telegram alert fired by mme-engine's OnFailure= when the engine enters the
+# 'failed' state (i.e. it crash-looped past StartLimitBurst and systemd gave up).
+# A single transient crash that restarts cleanly does NOT trigger this — by
+# design, so you are paged on real outages, not on blips.
+#
+# Requires TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID in ops/.env. No-ops if unset.
+
+[Unit]
+Description=Telegram alert: mme-engine entered failed state
+
+[Service]
+Type=oneshot
+User=kadir70
+WorkingDirectory=/home/kadir70/market-microstructure-engine
+ExecStart=/home/kadir70/market-microstructure-engine/ops/telegram_notify.sh "🚨 mme-engine FAILED (crash-looped past retry limit). systemd has stopped restarting it. Investigate: journalctl -u mme-engine -n 100"

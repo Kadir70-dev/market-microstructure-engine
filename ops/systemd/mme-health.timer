@@ -1,0 +1,13 @@
+# Runs the health probe every 10 minutes while the box is up.
+
+[Unit]
+Description=Run mme-engine health probe every 10 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+# Catch up a single missed run if the box was asleep, but don't stampede.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,22 @@
+# Periodic read-only health check (driven by mme-health.timer).
+# Runs health_check.py with the process-liveness check SKIPPED, because under
+# systemd the engine's liveness is owned by the unit (Restart=always) + the
+# OnFailure alert — not by a PID file. This probe focuses on data health:
+# DB present/readable, recent writes, log freshness, API key, frozen feed.
+# Pages Telegram only on FAIL (genuine problem); WARN (e.g. weekend-closed
+# market / frozen feed) is logged, not paged, to avoid alert fatigue.
+
+[Unit]
+Description=mme-engine health probe (read-only)
+After=mme-engine.service
+
+[Service]
+Type=oneshot
+User=kadir70
+WorkingDirectory=/home/kadir70/market-microstructure-engine
+EnvironmentFile=-/home/kadir70/market-microstructure-engine/ops/.env
+Environment=MME_SKIP_PROCESS=1
+ExecStart=/home/kadir70/market-microstructure-engine/ops/run_health_probe.sh
+# Exit 2 = WARN (e.g. weekend-closed market / frozen feed) — treat as success so
+# the unit isn't perpetually 'failed'. Exit 1 = FAIL stays a failure (and pages).
+SuccessExitStatus=2

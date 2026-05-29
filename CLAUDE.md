@@ -131,7 +131,10 @@ market-microstructure-engine/
 ├── ops/                    Production shell + python. See §10. common.sh is sourced by all *.sh.
 │   ├── .env / .env.example secrets + schedule (.env is gitignored)
 │   ├── crontab.example     session start/stop + 10-min health probe
-│   └── systemd/            optional auto-restart unit (Restart=always)
+│   ├── systemd/            24/5 stack: engine (Restart=always+boot) + alert(OnFailure) +
+│   │                       health.timer + cleanup.timer. See ops/systemd/README.md.
+│   ├── install_systemd.sh  one-shot installer (sudo) for the 24/5 stack
+│   └── mme_cleanup.sh      weekly journald vacuum + WAL checkpoint + log prune
 │
 ├── docs/                   OPERATIONS.md, RUNBOOK.md, RECOVERY.md, MONDAY_CHECKLIST.md, MT5_BRIDGE.md
 ├── reports/snapshots/      Committed sample backtest/health snapshots (showcase)
@@ -274,7 +277,8 @@ All `ops/*.sh` source `ops/common.sh` (repo-root resolution, PID/log paths,
 | `run_eod_pipeline.sh` | health + backtest snapshot + Hermes report + Telegram. Idempotent, read-only on the engine. |
 | `probe_mt5_bridge.sh` | One-shot bridge ping + demo_only check. |
 | `telegram_notify.sh` | Infra alerts only. No-op if creds unset. **Never carries a trading action.** |
-| `systemd/` | Optional `Restart=always` unit (stronger failure recovery than cron's 10-min probe). |
+| `systemd/` | **24/5 production stack** (preferred over cron): `mme-engine` (Restart=always, boot-start, crash-loop guard), `mme-alert` (Telegram on failed state), `mme-health.timer` (10-min read-only probe, skips PID check), `mme-cleanup.timer` (weekly journald vacuum + WAL checkpoint + log prune). Install: `sudo ops/install_systemd.sh`. |
+| `mme_cleanup.sh` | Disk-cleanup policy; safe to run live. |
 
 Liveness is PID-recycling-aware: it checks `kill -0` **and** `comm == engine`.
 

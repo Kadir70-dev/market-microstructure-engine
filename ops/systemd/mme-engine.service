@@ -1,25 +1,28 @@
-# market-microstructure-engine — optional systemd unit (auto-start + auto-restart).
+# market-microstructure-engine — 24/5 data-collection service (read-only, NO trading).
 #
-# This is an ALTERNATIVE to the cron + PID-file lifecycle (ops/start_engine.sh +
-# crontab.example). Use ONE or the other, not both — they would fight over the
-# process. Pick systemd if you want kernel-supervised restart-on-crash;
-# pick cron if you want session-windowed start/stop without root.
+# Production path for long-running data collection. Use this INSTEAD of the cron
+# lifecycle (ops/crontab.example) — never both, they would fight over the process.
 #
-# Install (adjust User= and paths to your box first):
-#   sudo cp ops/systemd/mme-engine.service /etc/systemd/system/
+# Install everything (engine + health + cleanup timers) with:
+#   sudo ops/install_systemd.sh
+# Or manually:
+#   sudo cp ops/systemd/*.service ops/systemd/*.timer /etc/systemd/system/
 #   sudo systemctl daemon-reload
-#   sudo systemctl enable --now mme-engine          # start now + on boot
-#   systemctl status mme-engine
-#   journalctl -u mme-engine -f                     # live logs
+#   sudo systemctl enable --now mme-engine mme-health.timer mme-cleanup.timer
+#   systemctl status mme-engine ; journalctl -u mme-engine -f
 #
-# The engine reads ../config/api_key.txt relative to CWD, so WorkingDirectory
-# is the build/ dir. Ensure config/api_key.txt exists (or set TWELVEDATA_API_KEY
-# in the EnvironmentFile) before starting.
+# The engine reads ../config/api_key.txt relative to CWD, so WorkingDirectory is
+# build/. Ensure config/api_key.txt is non-empty before starting.
 
 [Unit]
-Description=Market Microstructure Engine (data-collection loop, read-only, no trading)
+Description=Market Microstructure Engine (24/5 data collection, read-only, no trading)
 After=network-online.target
 Wants=network-online.target
+# Crash-loop protection MUST live in [Unit] (not [Service]): if the engine fails
+# 5 times within 300s, stop retrying and enter 'failed' -> OnFailure pages us.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+OnFailure=mme-alert.service
 
 [Service]
 Type=simple
@@ -28,18 +31,21 @@ WorkingDirectory=/home/kadir70/market-microstructure-engine/build
 EnvironmentFile=-/home/kadir70/market-microstructure-engine/ops/.env
 ExecStart=/home/kadir70/market-microstructure-engine/build/engine
 
-# Failure recovery: restart on any non-clean exit, with backoff so a crash-loop
-# doesn't hammer the API (and burn the free-tier daily quota).
+# Auto-restart on any non-clean exit, with backoff so a crash-loop can't hammer
+# the API (and burn the free-tier daily quota).
 Restart=always
 RestartSec=10
-StartLimitIntervalSec=300
-StartLimitBurst=5
 
-# Clean shutdown: the engine handles SIGTERM (interruptibleSleep → ~1s exit).
+# Clean shutdown: engine handles SIGTERM (interruptibleSleep -> ~1s exit).
 KillSignal=SIGTERM
 TimeoutStopSec=20
 
-# Light hardening — this process only needs to read config and write data/logs.
+# Bound journald growth from the engine's per-cycle stdout over weeks of running.
+# (The authoritative log is still the rotating ../logs/engine.log, 10MB x 7.)
+LogRateLimitIntervalSec=30
+LogRateLimitBurst=20
+
+# Light hardening — only needs to read config and write data/ + logs/.
 NoNewPrivileges=true
 ProtectSystem=full
 PrivateTmp=true

@@ -1,0 +1,10 @@
+# Weekly disk-cleanup (driven by mme-cleanup.timer). Runs as root so it can
+# vacuum the system journal; the script is read-mostly and WAL-safe.
+
+[Unit]
+Description=mme-engine weekly disk cleanup (journald vacuum, WAL checkpoint, log prune)
+
+[Service]
+Type=oneshot
+# Runs as root (no User=) to vacuum the system journal.
+ExecStart=/home/kadir70/market-microstructure-engine/ops/mme_cleanup.sh
