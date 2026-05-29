@@ -76,7 +76,7 @@ flowchart LR
         HERMES["Hermes agent<br/>(Python, daily report)"]
     end
 
-    DASH["Dashboard<br/>(planned — not built)"]:::planned
+    DASH["Next.js Dashboard<br/>(read-only observability)"]
     TG["Telegram<br/>(infra alerts only)"]
 
     TD --> FETCH
@@ -87,11 +87,10 @@ flowchart LR
     VAL --> DB
     DB --> BT
     DB --> HERMES
+    DB --> DASH
+    HERMES --> DASH
     HERMES --> TG
-    HERMES -.-> DASH
     Engine -. start/stop/crash .-> TG
-
-    classDef planned stroke-dasharray: 5 5,opacity:0.6;
 ```
 
 **Hot path** (live, every 30s): feed → indicators → validation → SQLite.
@@ -235,18 +234,50 @@ python3 -m unittest agent.hermes.tests.test_daily_report -v   # Hermes only
 
 ---
 
+## Dashboard
+
+A read-only **Next.js** (TypeScript · Tailwind · Recharts) observability
+dashboard lives in [`dashboard/`](dashboard/). It opens `engine.db`
+**read-only** — mirroring the engine's cold-path boundary — and renders:
+
+- KPIs (symbols, ticks, signals, mean confidence, stale %),
+- normalized multi-symbol **price chart**,
+- a **hypothetical equity curve** (gross vs **net of round-trip cost**, using the
+  same look-ahead-safe gates as the C++ backtest — explicitly *not* traded),
+- **signal analytics** (momentum mix, trade-quality grades, confidence histogram),
+- **confidence calibration** (does higher confidence → higher realized accuracy?),
+- **feed health** with frozen-feed detection,
+- a **Hermes reports** viewer.
+
+```bash
+cd dashboard
+npm install
+npm run dev                                    # http://localhost:3000 (DEMO data)
+DASHBOARD_DB_PATH=../data/engine.db npm run dev  # live data from your engine.db
+```
+
+Out of the box it shows a **deterministic demo session** (synthetic data derived
+with the engine's exact formulas, clearly watermarked) so it renders richly and
+deploys anywhere. See [`dashboard/README.md`](dashboard/README.md).
+
+> The demo makes a deliberate point a recruiter should not miss: the signal has
+> a positive **gross** edge that goes **negative after costs** at 30s cadence —
+> which is *why* the engine collects data instead of trading.
+
 ## Screenshots
 
-_Placeholders — to be added once the dashboard ships and a longer dataset
-exists:_
+_Run the dashboard (above) and capture these four; drop the PNGs in `docs/img/`
+and they render here._
 
-| | |
+| Image | What to capture |
 |---|---|
-| `docs/img/engine-live.png` | Live engine console (per-symbol cycle log) |
-| `docs/img/backtest.png` | `engine_backtest` net-return table |
-| `docs/img/hermes-report.png` | A rendered Hermes daily report |
-| `docs/img/health-check.png` | `health_check.py` green board |
-| `docs/img/dashboard.png` | Dashboard (planned) |
+| `docs/img/dashboard-overview.png` | Dashboard top: KPI row + price chart + equity curve |
+| `docs/img/dashboard-analytics.png` | Signal analytics + confidence calibration |
+| `docs/img/hermes-report.png` | The Hermes reports viewer (`/reports`) |
+| `docs/img/backtest.png` | `engine_backtest` net-return table (terminal) |
+
+<!-- ![Dashboard overview](docs/img/dashboard-overview.png) -->
+<!-- ![Signal analytics](docs/img/dashboard-analytics.png) -->
 
 ---
 
@@ -309,10 +340,10 @@ Optional systemd auto-restart unit: [`ops/systemd/`](ops/systemd/).
 |---|---|---|
 | **0 — Foundation** ✅ | Feed, validation, SQLite ground truth, look-ahead-safe backtest, ops layer, docs | None |
 | **1 — Read-only MT5** ✅ (code) | Broker quotes via demo-only bridge; side-by-side feed comparison | None |
-| **2 — Edge research** ⏳ | Weeks of session-aligned data; replace hardcoded vol thresholds with empirical percentiles; vol-scaled momentum; demonstrate a *net-of-cost* edge in the backtest | None |
-| **3 — Paper / demo execution** | Order ops behind the double gate, demo account only; reconcile fills vs. signals | Demo only |
-| **4 — Dashboard + monitoring** | Web dashboard over `engine.db`; live equity/health view | Demo only |
-| **5 — Sized live** | Only if Phase 2 edge survives demo execution; small fixed size, kill-switch first | Real, minimal |
+| **2 — Observability dashboard** ✅ | Read-only Next.js dashboard: price, equity, calibration, health, Hermes reports | None |
+| **3 — Edge research** ⏳ | Weeks of session-aligned data; honest predictive baseline (logistic/GBM, walk-forward); replace hardcoded vol thresholds with empirical percentiles; demonstrate a *net-of-cost* edge | None |
+| **4 — Paper / demo execution** | Order ops behind the double gate, demo account only; reconcile fills vs. signals | Demo only |
+| **5 — Sized live** | Only if Phase 3 edge survives demo execution; small fixed size, kill-switch first | Real, minimal |
 
 The order is intentional: **prove survivability and honesty before alpha,
 prove alpha before risk.**
@@ -337,7 +368,9 @@ prove alpha before risk.**
 - **WTI is an ETF proxy (USO).** The true `WTI/USD` CFD is paid-tier; `USO`
   tracks it imperfectly.
 - **Volatility thresholds are hardcoded**, not empirically calibrated yet.
-- **Dashboard is not built** — it's on the roadmap, shown dashed in the diagram.
+- **No predictive model yet** — "confidence" is a transparent heuristic, not a
+  learned model. An honest, walk-forward-validated baseline is the next step
+  (Phase 3), surfaced in the dashboard's calibration view.
 - **Single host, single process.** No HA; recovery is restart-based.
 
 ---
@@ -375,6 +408,7 @@ prove alpha before risk.**
 include/, src/        C++ engine — market_data / indicators / validation / storage / evaluation
 tests/                C++ unit tests (CTest, zero external framework)
 .github/workflows/    CI: build + test on every push/PR
+dashboard/            Next.js read-only observability dashboard (TS/Tailwind/Recharts)
 agent/hermes/         Python read-only daily analyst (Hermes) — tests in agent/hermes/tests/
 agent/mt5_bridge/     Python MT5 sidecar (read-only, demo-gated)
 ops/                  Production scripts: start/stop/status/health/recovery/cron/systemd

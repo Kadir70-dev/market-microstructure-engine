@@ -115,6 +115,11 @@ market-microstructure-engine/
 ├── tests/                  unit_tests.cpp — zero-dep C++ tests (validation + metrics), CTest-registered.
 ├── .github/workflows/      ci.yml — build + CTest on every push/PR to main.
 │
+├── dashboard/              Next.js read-only observability UI (TS/Tailwind/Recharts).
+│                           Opens engine.db READ-ONLY via better-sqlite3 (lazy, optional);
+│                           DEMO data by default, DASHBOARD_DB_PATH for live. lib/analytics.ts
+│                           mirrors the backtest's look-ahead gates + cost model. Writes NOTHING.
+│
 ├── agent/
 │   ├── hermes/             Read-only Python analyst. daily_report.py + db.py. Writes reports/*.md.
 │   └── mt5_bridge/         Read-only Python MT5 sidecar. mt5_bridge.py + protocol.md. Demo-gated.
@@ -347,10 +352,15 @@ Liveness is PID-recycling-aware: it checks `kill -0` **and** `comm == engine`.
 
 ## 16. Roadmap
 
-`0 Foundation ✅ → 1 Read-only MT5 ✅(code) → 2 Edge research ⏳ →
-3 Paper/demo execution (gated) → 4 Dashboard → 5 Sized live (only if edge
-survives demo)`. Prove survivability & honesty before alpha; prove alpha before
-risk. Full table in `README.md`.
+`0 Foundation ✅ → 1 Read-only MT5 ✅(code) → 2 Observability dashboard ✅ →
+3 Edge research ⏳ (honest predictive baseline + more data) → 4 Paper/demo
+execution (gated) → 5 Sized live (only if edge survives demo)`. Prove
+survivability & honesty before alpha; prove alpha before risk. Full table in
+`README.md`.
+
+**Dashboard safety note:** the dashboard is read-only by construction
+(`better-sqlite3` opened with `readonly:true`; no write path exists). Keep it
+that way — it is an observability surface, never a control surface.
 
 ---
 
