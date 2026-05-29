@@ -1,0 +1,55 @@
+Database:  ../data/engine.db
+Signals:   30
+Usable:    18
+Excluded:  3 stale, 0 no baseline, 9 no future
+
+Cost model (round-trip, as fraction of price):
+  EUR/USD     +0.00015
+  USO         +0.00020
+  XAU/USD     +0.00015
+  (default)   +0.00030
+
+=== By symbol (GROSS — costs not applied) ===
+symbol             N   |   bull%   bear%     ret@60  |   bull%   bear%    ret@300  |   bull%   bear%    ret@900
+------------------------------------------------------------------------------------------------------------
+EUR/USD            6   |   0.0%   0.0%  +0.00000  |   0.0%   0.0%  +0.00000  |   0.0%   0.0%  +0.00000
+USO                6   |   0.0%   0.0%  +0.00000  |   0.0%   0.0%  +0.00000  |   0.0%   0.0%  +0.00000
+XAU/USD            6   |   0.0%   0.0%  +0.00000  |   0.0%   0.0%  +0.00000  |   0.0%   0.0%  +0.00000
+
+=== By volatility regime (GROSS — costs not applied) ===
+regime             N   |   bull%   bear%     ret@60  |   bull%   bear%    ret@300  |   bull%   bear%    ret@900
+------------------------------------------------------------------------------------------------------------
+LOW               18   |   0.0%   0.0%  +0.00000  |   0.0%   0.0%  +0.00000  |   0.0%   0.0%  +0.00000
+
+=== By confidence band (GROSS — costs not applied) ===
+band               N   |   bull%   bear%     ret@60  |   bull%   bear%    ret@300  |   bull%   bear%    ret@900
+------------------------------------------------------------------------------------------------------------
+0-29              18   |   0.0%   0.0%  +0.00000  |   0.0%   0.0%  +0.00000  |   0.0%   0.0%  +0.00000
+
+=== By symbol (NET — round-trip cost applied) ===
+symbol         N_dir  |   gross@60    cost@60     net@60  |  gross@300   cost@300    net@300  |  gross@900   cost@900    net@900
+------------------------------------------------------------------------------------------------------------------------------------
+EUR/USD            0  |  +0.00000  -0.00000  +0.00000  |  +0.00000  -0.00000  +0.00000  |  +0.00000  -0.00000  +0.00000
+USO                0  |  +0.00000  -0.00000  +0.00000  |  +0.00000  -0.00000  +0.00000  |  +0.00000  -0.00000  +0.00000
+XAU/USD            0  |  +0.00000  -0.00000  +0.00000  |  +0.00000  -0.00000  +0.00000  |  +0.00000  -0.00000  +0.00000
+
+=== By volatility regime (NET — round-trip cost applied) ===
+regime         N_dir  |   gross@60    cost@60     net@60  |  gross@300   cost@300    net@300  |  gross@900   cost@900    net@900
+------------------------------------------------------------------------------------------------------------------------------------
+LOW                0  |  +0.00000  -0.00000  +0.00000  |  +0.00000  -0.00000  +0.00000  |  +0.00000  -0.00000  +0.00000
+
+=== By confidence band (NET — round-trip cost applied) ===
+band           N_dir  |   gross@60    cost@60     net@60  |  gross@300   cost@300    net@300  |  gross@900   cost@900    net@900
+------------------------------------------------------------------------------------------------------------------------------------
+0-29               0  |  +0.00000  -0.00000  +0.00000  |  +0.00000  -0.00000  +0.00000  |  +0.00000  -0.00000  +0.00000
+
+=== Headline: net expectancy at +300s ===
+  EUR/USD       N=    0  gross= +0.00000  cost= -0.00000  net= +0.00000   [-]
+  USO           N=    0  gross= +0.00000  cost= -0.00000  net= +0.00000   [-]
+  XAU/USD       N=    0  gross= +0.00000  cost= -0.00000  net= +0.00000   [-]
+
+VERDICT: no symbol shows positive net expectancy at +300s with N>=50.
+Do NOT advance to MT5 demo execution on these signals. Either:
+  (a) collect more data and re-evaluate, OR
+  (b) rework the signal logic (vol-scaled momentum threshold,
+      empirical vol regime cutoffs) before re-running.

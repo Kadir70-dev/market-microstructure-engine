@@ -1,0 +1,7 @@
+Overall: WARN  (0 fail, 3 warn, 2 pass)
+
+  [PASS] db_present          32768 bytes
+  [WARN] db_recent_write     newest tick is 25791s old (> 150s threshold)
+  [WARN] log_recent          log untouched for 25785s (> 120s)
+  [PASS] api_key_present     from /home/kadir70/market-microstructure-engine/config/api_key.txt
+  [WARN] price_not_frozen    feed appears frozen: USO=140.96001, XAU/USD=4505.68166
