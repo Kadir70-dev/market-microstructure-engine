@@ -1,474 +1,513 @@
+<div align="center">
+
 # Market Microstructure Engine
 
+**A C++17 market-data collection engine with an immutable SQLite ground-truth store,
+a look-ahead-safe evaluation harness, and a read-only Next.js research terminal.**
+
+*Research and data-collection infrastructure. It does not place trades — there is no execution path in the codebase.*
+
 [![CI](https://github.com/Kadir70-dev/market-microstructure-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/Kadir70-dev/market-microstructure-engine/actions/workflows/ci.yml)
-![C++17](https://img.shields.io/badge/C%2B%2B-17-blue)
-![Python 3](https://img.shields.io/badge/Python-3-blue)
-![No live trading](https://img.shields.io/badge/live%20trading-disabled%20by%20design-critical)
+[![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C?logo=cplusplus&logoColor=white)](CMakeLists.txt)
+[![Next.js](https://img.shields.io/badge/Next.js-14.2-000000?logo=nextdotjs&logoColor=white)](dashboard/package.json)
+[![React](https://img.shields.io/badge/React-18.3-61DAFB?logo=react&logoColor=black)](dashboard/package.json)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178C6?logo=typescript&logoColor=white)](dashboard/tsconfig.json)
+[![SQLite](https://img.shields.io/badge/SQLite-ground%20truth-003B57?logo=sqlite&logoColor=white)](#database-schema)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.4-06B6D4?logo=tailwindcss&logoColor=white)](dashboard/tailwind.config.ts)
+[![Recharts](https://img.shields.io/badge/Recharts-2.12-FF6384)](dashboard/components/charts.tsx)
 
-A C++ market-intelligence engine that polls live FX / metals / energy quotes,
-runs them through a momentum + volatility + validation pipeline, and persists
-every observation to SQLite as **immutable ground truth** — so signals and
-trade-quality scores can be re-derived and back-tested honestly, without
-look-ahead bias.
+[![API contract](https://img.shields.io/badge/API%20contract-v1.0%20frozen-38bdf8)](API_CONTRACT.md)
+[![Status](https://img.shields.io/badge/status-ready%20for%20release-22c55e)](CURRENT_STATUS.md)
+[![Data modes](https://img.shields.io/badge/data-demo%20%7C%20live%20SQLite-a78bfa)](#running-the-dashboard)
+[![Live trading](https://img.shields.io/badge/live%20trading-disabled%20by%20design-ef4444)](#the-no-execution-boundary)
 
-> **Status: data-collection & research phase. This system does not place
-> trades.** No broker order ever leaves this codebase. The MT5 integration is
-> read-only and guarded by a `demo_only` tripwire. See
-> [Risk philosophy](#risk-philosophy).
-
----
-
-## Why I built this
-
-Most "trading bot" portfolios are a backtest in a notebook that quietly
-overfits and would never survive contact with a live feed. I wanted to build
-the *opposite*: the unglamorous infrastructure that has to exist **before**
-you are allowed to risk a single dollar —
-
-- a feed you can trust,
-- a database you can't accidentally rewrite,
-- a backtest that refuses to fabricate returns across downtime gaps,
-- an ops layer that restarts itself and tells you when it's lying,
-- and a hard, auditable wall between "analysis" and "execution."
-
-The trading edge is *deliberately* the last thing built, not the first. This
-repo is the honest foundation.
+</div>
 
 ---
 
-## Problem statement
+## Project overview
 
-Retail algo-trading fails for boring reasons long before strategy quality
-matters:
+### The problem
 
-1. **Bad data** — stale quotes, cached API responses, weekend freezes, and
-   symbol-resolution bugs silently poison every downstream decision.
-2. **Look-ahead bias** — backtests that peek at future prices or paper over
-   engine downtime produce returns that evaporate live.
-3. **Survivability** — an engine that dies at 02:00 UTC and nobody notices has
-   a 0% Sharpe regardless of strategy.
-4. **No firewall** — "just let it trade" is how accounts get blown up.
+Retail algorithmic trading projects usually fail for reasons that have nothing to do with
+strategy quality:
 
-This engine attacks (1)–(4) **first**, and treats alpha as a later, separate
-problem to be measured — not assumed.
+1. **Untrustworthy data** — stale quotes, weekend freezes, cached responses, and symbol
+   resolution bugs silently poison every downstream number.
+2. **Look-ahead bias** — backtests that peek at future prices, or that interpolate across
+   engine downtime, produce returns that evaporate on live data.
+3. **No survivability** — a collector that dies at 02:00 UTC and is not noticed has no
+   Sharpe ratio at all.
+4. **No firewall between analysis and execution** — "just let it trade" is how accounts
+   get destroyed.
+
+This repository attacks (1)–(4) first and treats alpha as a separate, later problem to be
+*measured* rather than assumed.
+
+### What it actually is
+
+A single-host research system in three parts:
+
+- **A C++17 engine** that reads quotes from a CSV exported by an MQL5 Expert Advisor,
+  computes momentum, volatility, staleness, session, confidence and trade-quality on a
+  30-second cycle, and writes raw ticks plus derived signals to SQLite in one transaction
+  per cycle.
+- **A read-only analysis layer** — a separate C++ backtest binary that links only sqlite3,
+  a Python daily analyst ("Hermes"), and a walk-forward logistic-regression baseline.
+- **A read-only Next.js terminal** that re-derives every displayed number from the same
+  SQLite ground truth, using the same look-ahead gates and cost model as the C++ harness.
+
+### Research purpose
+
+The engine exists to answer one question honestly: *does a measurable directional edge
+survive transaction costs at this data resolution?* On the data collected so far the
+answer is **no** — and the system reports that rather than hiding it. Establishing an edge
+would require weeks of session-aligned collection and, more importantly, a finer data
+resolution than the current feed provides.
+
+### The no-execution boundary
+
+There is no order-execution code path anywhere in this repository. Not disabled — absent.
+The MQL5 exporter has no order calls, the engine only reads a file, the analysis layer
+opens the database read-only, and the dashboard has no write path. Telegram alerting is
+wired for infrastructure events only. This is an architectural property, not a config flag.
+
+---
+
+## Screenshots
+
+### Dashboard — live SQLite mode
+
+Collection KPIs, normalized multi-symbol price, the explicitly hypothetical equity
+diagnostic, signal composition, calibration and feed health. The header strip shows session
+clock, data provenance, engine status and last-update age.
+
+![Dashboard overview](docs/img/dashboard-overview.png)
+
+### Prediction — model diagnostics
+
+Out-of-sample AUC against a permutation null, reliability diagram, net-of-cost curve by
+trade threshold, and standardized feature coefficients. The verdict banner states the
+honest conclusion, and the badge marks the source as synthetic because the live database is
+not yet trainable.
+
+![Prediction](docs/img/prediction.png)
+
+### Hermes reports
+
+The read-only Python analyst's daily markdown, rendered with GitHub-flavored tables:
+signal summary, per-symbol performance, confidence-band accuracy, regime distribution, and
+an automatically generated *Problems Found* section.
+
+![Hermes report](docs/img/hermes-report.png)
+
+### System profile
+
+Implemented capabilities, unavailable future work, the current architecture path, the stack
+actually present in the repository, and a maturity matrix that mirrors
+[`CURRENT_STATUS.md`](CURRENT_STATUS.md).
+
+![System profile](docs/img/portfolio-profile.png)
+
+### Mobile
+
+The same terminal at 414 px: two-column KPI grid, bottom navigation, no horizontal page
+scroll.
+
+![Mobile](docs/img/mobile.png)
 
 ---
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    subgraph Feeds["Market data (Ubuntu + Wine)"]
-        MT5["MetaTrader 5 (Wine)"]
-        EA["MQL5 EA<br/>mt5_file_export"]
-        CSV["mme_quotes.csv"]
-        MT5 --> EA --> CSV
-    end
-
-    subgraph Engine["C++ Engine (single binary, 30s poll loop)"]
-        FETCH["FileProvider<br/>(reads CSV)"]
-        IND["Indicators<br/>momentum · volatility"]
-        VAL["Validation<br/>staleness · session · confidence · trade-quality"]
-    end
-
-    DB[("SQLite<br/>data/engine.db<br/>ticks · signals · quality_scores")]
-
-    subgraph Cold["Cold-path analysis (read-only)"]
-        BT["engine_backtest<br/>(C++, look-ahead-safe)"]
-        HERMES["Hermes agent<br/>(Python, daily report)"]
-    end
-
-    DASH["Next.js Dashboard<br/>(read-only observability)"]
-    TG["Telegram<br/>(infra alerts only)"]
-
-    CSV --> FETCH
-    FETCH --> IND --> VAL
-    FETCH --> DB
-    IND --> DB
-    VAL --> DB
-    DB --> BT
-    DB --> HERMES
-    DB --> DASH
-    HERMES --> DASH
-    HERMES --> TG
-    Engine -. start/stop/crash .-> TG
+```
+        ┌─────────────────────────────────────────────┐
+        │  MetaTrader 5 (Wine)                        │
+        │  └── MQL5 EA: mt5_file_export.mq5           │   read-only, demo-gated
+        │        └── mme_quotes.csv                   │   symbol,epoch,bid,ask,mid
+        └───────────────────────┬─────────────────────┘
+                                │  file read, mtime = freshness
+                                ▼
+        ┌─────────────────────────────────────────────┐
+        │  C++ ENGINE  (single binary, 30s cycle)     │
+        │    FileProvider  →  mid price               │
+        │    Indicators    →  momentum · volatility   │
+        │    Validation    →  staleness · session ·   │
+        │                     confidence · quality    │
+        └───────────────────────┬─────────────────────┘
+                                │  one transaction per cycle
+                                ▼
+        ┌─────────────────────────────────────────────┐
+        │  SQLite  data/engine.db   (ground truth)    │
+        │    ticks · signals · quality_scores         │
+        └──────┬───────────────┬──────────────┬───────┘
+               │ read-only     │ read-only    │ read-only
+               ▼               ▼              ▼
+     ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐
+     │ engine_back- │  │ Hermes       │  │ Research         │
+     │ test (C++)   │  │ (Python)     │  │ (scikit-learn)   │
+     │ look-ahead   │  │ daily .md    │  │ walk-forward     │
+     │ safe gates   │  │ reports      │  │ baseline         │
+     └──────────────┘  └──────┬───────┘  └────────┬─────────┘
+                              │                   │
+                              ▼                   ▼
+        ┌─────────────────────────────────────────────┐
+        │  REST API  (Next.js route handlers, GET)    │
+        │  8 read-only endpoints · no-store · v1.0    │
+        └───────────────────────┬─────────────────────┘
+                                ▼
+        ┌─────────────────────────────────────────────┐
+        │  DASHBOARD  (Next.js · React · Recharts)    │
+        │  3 routes · 10s polling · provenance badges │
+        └─────────────────────────────────────────────┘
 ```
 
-**Hot path** (live, every 30s): feed → indicators → validation → SQLite.
-**Cold path** (read-only, on demand / EOD): SQLite → backtest + Hermes → alerts.
-
-The two paths share nothing but the database file, and the cold path opens it
-**read-only**. A bug in analysis can never corrupt collected data.
+The hot path (feed → engine → SQLite) and the cold path (SQLite → analysis → API →
+dashboard) share nothing but the database file, and the cold path opens it read-only. A bug
+in analysis cannot corrupt collected data.
 
 ---
 
-## Trading pipeline
+## Features
 
-For each symbol, every cycle:
+Classification below matches [`CURRENT_STATUS.md`](CURRENT_STATUS.md) exactly.
 
-| Stage | Module | Output |
-|---|---|---|
-| Fetch | `market_data/file_provider` | mid price from the MQL5 EA's CSV snapshot |
-| Momentum | `indicators/momentum.cpp` | `Bullish` / `Bearish` / `Neutral` (±1e-7 dead-zone) |
-| Volatility | `indicators/volatility.cpp` | stddev of log-returns → `LOW` / `MEDIUM` / `HIGH` (scale-invariant) |
-| Staleness | `validation/validation.cpp` | byte-frozen feed detection (catches weekend/cache/symbol bugs) |
-| Session | `validation/validation.cpp` | UTC session: `Asia` / `London` / `LondonNY` / `NewYork` / `Closed` |
-| Confidence (0–100) | `validation/validation.cpp` | scaled by warm-up, vol regime, momentum |
-| Trade quality (0–100) + grade | `validation/validation.cpp` | confidence × session multiplier → `A/B/C/D` |
-| Persist | `storage/sqlite_logger.cpp` | atomic per-symbol write of all three rows |
+### Implemented
 
-All three rows for a cycle share one timestamp and commit in a single
-transaction — so the backtest JOIN can never silently drop a half-written
-cycle.
-
----
-
-## Hermes agent
-
-`agent/hermes/` is a **read-only analyst**, not a trader. Once a day (or on
-demand) it reads `engine.db`, computes:
-
-- signal counts and bull/bear/neutral mix,
-- per-symbol confidence and trade-quality stats,
-- forward 60s directional accuracy by confidence band — using the **same
-  look-ahead/staleness exclusion rules as the C++ backtest**,
-- session & volatility-regime distributions,
-- an automatic **Problems Found** section (frozen feed, neutral over-trigger,
-  schedule misalignment, sub-coin-flip high-confidence accuracy),
-- concrete **Recommendations** tied to specific source files.
-
-Output: `agent/hermes/reports/YYYY-MM-DD.md`. Hermes "does not place trades,
-does not connect to brokers, and does not bypass risk management" — and the
-code enforces that by simply not having those capabilities.
-
-See sample output in [`agent/hermes/reports/`](agent/hermes/reports/).
-
----
-
-## MT5 feed (Linux + Wine, file-export)
-
-The **only** data source. MetaTrader 5 runs under **Wine**; a tiny **MQL5 Expert
-Advisor** ([`mt5_file_export.mq5`](agent/mt5_bridge/mt5_file_export.mq5)) running
-inside the terminal writes quotes to `mme_quotes.csv`, and the native-Linux
-engine's `FileProvider` reads that CSV. No Python `MetaTrader5` package
-(Windows-only), no cross-boundary sockets, no API key.
-
-CSV schema — one line per symbol, overwritten each interval:
-
-```
-symbol,epoch_seconds,bid,ask,mid
-EURUSD,1780061874,1.08490,1.08500,1.08495
-```
-
-- **Read-only / no trading:** the EA has no order calls and warns on a non-demo
-  account; the engine only *reads* a file — no execution path exists anywhere.
-- **Staleness-tolerant:** if the EA/terminal stalls, the CSV mtime stops
-  advancing → the engine skips and `health_check.py`'s `quotes_csv` check flags it.
-
-Full setup + MetaEditor steps: [`docs/MT5_BRIDGE.md`](docs/MT5_BRIDGE.md).
-
----
-
-## Risk philosophy
-
-> **The system is not allowed to make money yet, because it has not yet earned
-> the right to lose it.**
-
-1. **No execution path exists.** Not disabled — *absent*. There is no order
-   function to accidentally call.
-2. **Read-only by construction.** The MT5 EA has no order calls (warns on a
-   non-demo account); the engine only *reads* a CSV — no execution path exists.
-3. **Telegram is for infra only** — start/stop/crash/feed alerts. It is wired
-   to *never* carry a trading action, by design and by comment contract.
-4. **Costs are modeled before profits are believed.** The backtest applies
-   round-trip spread/commission per symbol and reports **net** alongside gross.
-5. **Honest exclusion over fabricated returns.** Observations spanning engine
-   downtime are dropped, not interpolated.
-
-The path to real money is staged and gated, and each gate is a deliberate,
-auditable decision — see [Roadmap](#roadmap).
-
----
-
-## Backtesting
-
-`engine_backtest` is a **separate read-only binary** that links only sqlite3 —
-none of the live engine code. It joins `signals ⋈ quality_scores ⋈ ticks` and
-reports bull/bear directional accuracy + mean return at **+60s / +300s / +900s**
-horizons, grouped by symbol, volatility regime, and confidence band.
-
-Look-ahead and survivorship gates it enforces:
-
-- **Baseline** = last tick *at or before* the signal, within 120s — never a
-  price from a dead-engine gap.
-- **Future** = first tick *at or after* `signal.ts + horizon`, within a
-  one-cycle tolerance; outside that window the observation is **excluded**, not
-  fabricated.
-- **Stale** signals are dropped entirely.
-- **Neutral** momentum counts toward N but is a non-trade, never a wrong-way
-  trade.
-- A **cost model** applies per-symbol round-trip costs and reports net returns.
-
-Sample snapshots: [`reports/snapshots/`](reports/snapshots/).
-
-### Tests & CI
-
-The pure logic is covered by tests that run on every push/PR via
-[GitHub Actions](.github/workflows/ci.yml):
-
-- **C++ unit tests** (`tests/unit_tests.cpp`, 66 assertions, zero external test
-  framework) — `validation.cpp` (staleness, UTC session boundaries, confidence,
-  trade-quality, grading) and `evaluation/metrics.cpp` (gross/net accuracy, cost
-  model, neutral-is-non-trade, no divide-by-zero), registered with CTest.
-- **Hermes Python tests** (`agent/hermes/tests/`, stdlib `unittest`) — signal
-  summarisation, confidence-accuracy exclusion rules, problem detection, the
-  read-only DB boundary, and an end-to-end report-file generation against a
-  temporary SQLite DB.
-
-```bash
-ctest --test-dir build --output-on-failure        # both suites
-./build/unit_tests                                 # C++ only
-python3 -m unittest agent.hermes.tests.test_daily_report -v   # Hermes only
-```
-
-> On the current small sample, momentum is ~100% `Neutral` and net edge is
-> ~zero. That is the *correct* honest output for this much data — the engine is
-> reporting "no signal," not inventing one. Establishing real edge requires
-> weeks of session-aligned collection (that's the point of the data-collection
-> phase).
-
----
-
-## Dashboard
-
-A read-only **Next.js** (TypeScript · Tailwind · Recharts) observability
-dashboard lives in [`dashboard/`](dashboard/). It opens `engine.db`
-**read-only** — mirroring the engine's cold-path boundary — and renders:
-
-- KPIs (symbols, ticks, signals, mean confidence, stale %),
-- normalized multi-symbol **price chart**,
-- a **hypothetical equity curve** (gross vs **net of round-trip cost**, using the
-  same look-ahead-safe gates as the C++ backtest — explicitly *not* traded),
-- **signal analytics** (momentum mix, trade-quality grades, confidence histogram),
-- **confidence calibration** (does higher confidence → higher realized accuracy?),
-- **feed health** with frozen-feed detection,
-- a **Hermes reports** viewer.
-
-```bash
-cd dashboard
-npm install
-npm run dev                                    # http://localhost:3000 (DEMO data)
-DASHBOARD_DB_PATH=../data/engine.db npm run dev  # live data from your engine.db
-```
-
-Out of the box it shows a **deterministic demo session** (synthetic data derived
-with the engine's exact formulas, clearly watermarked) so it renders richly and
-deploys anywhere. See [`dashboard/README.md`](dashboard/README.md).
-
-> The demo makes a deliberate point a recruiter should not miss: the signal has
-> a positive **gross** edge that goes **negative after costs** at 30s cadence —
-> which is *why* the engine collects data instead of trading.
-
-## Prediction — honest ML baseline
-
-A **next-direction probability** model ([`agent/research/`](agent/research/))
-built to quant standards, with the result reported honestly rather than
-flattered:
-
-- **Logistic Regression** (interpretable, calibrated) on the engine's own
-  features — momentum, volatility, confidence, session, regime, rolling stats,
-  cost. No deep learning, no feature bloat.
-- **Walk-forward** (expanding, time-ordered) validation — no look-ahead leakage.
-- **Probabilities, not binary calls**, with a **calibration / reliability** curve.
-- A **permutation test** to prove whether AUC is above chance.
-- **Net-of-cost** evaluation — the only metric that matters.
-
-**Result (current run):**
-
-| Metric | Value |
+| Capability | Where |
 |---|---|
-| Out-of-sample AUC | **0.545** vs permutation null **0.498 ± 0.009**, **p = 0.03** → above chance |
-| Precision / Recall | 0.53 / 0.58 · Brier 0.249 (calibrated) |
-| Gross return | **+8.5%** |
-| **Net of cost** | **−57%** over 3,932 trades → **does NOT survive costs** |
+| 30-second mid-price collection for 3 symbols (EUR/USD, XAU/USD, USO) | `src/main.cpp`, `src/market_data/file_provider.cpp` |
+| Momentum and volatility-regime classification | `src/indicators/` |
+| Staleness, UTC session, confidence and trade-quality grading | `src/validation/validation.cpp` |
+| Atomic per-cycle persistence to three SQLite tables | `src/storage/sqlite_logger.cpp` |
+| Look-ahead-safe backtest at +60s / +300s / +900s with a per-symbol cost model | `src/evaluation/` |
+| C++ unit tests and Python Hermes tests, both registered with CTest and run in CI | `tests/`, `agent/hermes/tests/` |
+| Read-only daily analyst producing markdown reports with auto-detected problems | `agent/hermes/` |
+| Walk-forward logistic baseline with permutation test and net-of-cost evaluation | `agent/research/` |
+| Eight read-only REST endpoints with a frozen contract and a uniform error envelope | `dashboard/app/api/`, `dashboard/lib/api.ts` |
+| Read-only terminal: 3 routes, 9 chart components, per-panel loading/error/empty states, 10s polling with hidden-tab pause | `dashboard/` |
+| Explicit data provenance (`source` + `sourceReason`) surfaced on every route | `dashboard/lib/db.ts`, `dashboard/components/ui.tsx` |
+| Operations layer: idempotent start/stop/status, 6-point health check, cron and systemd units | `ops/` |
 
-> **Honest verdict:** a weak, statistically-real directional signal that
-> transaction costs erase. **No deployable edge** — which is the correct finding,
-> not a disappointing one. A backtest that claimed otherwise on this data would
-> be lying.
+### Experimental
 
-| Calibration | Feature importance | Net-of-cost equity |
-|---|---|---|
-| ![Calibration](agent/research/results/calibration.png) | ![Feature importance](agent/research/results/feature_importance.png) | ![Net of cost](agent/research/results/equity_net.png) |
-
-**On the data:** the live `engine.db` is currently *not trainable* (too few rows,
-no directional variance) — and the pipeline **says so explicitly** rather than
-fabricating a model. The metrics above are computed on a **disclosed synthetic
-session** (generating process in `synthetic.py`) to demonstrate the methodology;
-`--source db` switches to live data automatically once enough is collected. See
-[`agent/research/README.md`](agent/research/README.md). Surfaced live in the
-dashboard's **Prediction** tab.
-
-## Screenshots
-
-_Run the dashboard (above) and capture these four; drop the PNGs in `docs/img/`
-and they render here._
-
-| Image | What to capture |
+| Item | Limitation |
 |---|---|
-| `docs/img/dashboard-overview.png` | Dashboard top: KPI row + price chart + equity curve |
-| `docs/img/prediction.png` | The Prediction tab: AUC, calibration, net-of-cost, feature importance |
-| `docs/img/hermes-report.png` | The Hermes reports viewer (`/reports`) |
-| `docs/img/backtest.png` | `engine_backtest` net-return table (terminal) |
+| ML baseline research pipeline | Trained on a **disclosed synthetic session** because the live database is not yet trainable; the pipeline refuses to train on insufficient data and says so |
+| MT5 / Wine file-export integration | Code complete, **unverified on the host used for the release audit** — validated against a CSV in the exporter's exact schema |
 
-<!-- ![Dashboard overview](docs/img/dashboard-overview.png) -->
-<!-- ![Signal analytics](docs/img/dashboard-analytics.png) -->
+### Future — not implemented, never displayed as live
 
----
+| Item | Blocker |
+|---|---|
+| Order-flow, spread and depth analytics | `ticks` persists **mid only**; bid/ask are parsed then discarded. Requires a schema migration |
+| True engine-cycle latency | No timing instrumentation exists; requires a new table and C++ changes |
+| Execution, positions, portfolio risk, real PnL | No execution path exists by design; requires an explicit human phase decision |
 
-## Setup
-
-System deps (Ubuntu):
-
-```bash
-sudo apt install build-essential cmake libspdlog-dev \
-                 libsqlite3-dev sqlite3 python3
-```
-
-Build:
-
-```bash
-cmake -S . -B build
-cmake --build build
-```
-
-Configure the data feed — **MT5-only via file-export** (no API key):
-
-```bash
-# 1. Run MT5 under Wine, log into a DEMO account.
-# 2. In MetaEditor, compile + attach agent/mt5_bridge/mt5_file_export.mq5
-#    (it writes mme_quotes.csv into the terminal's MQL5/Files/ folder).
-# 3. Point the engine at that CSV (absolute path inside the Wine prefix):
-export MME_QUOTES_CSV="$HOME/.mt5/drive_c/Program Files/<Terminal>/MQL5/Files/mme_quotes.csv"
-ops/check_quotes.sh "$MME_QUOTES_CSV"   # expect: QUOTES OK: fresh
-```
-
-Full step-by-step (Wine + MetaEditor): [`docs/MT5_BRIDGE.md`](docs/MT5_BRIDGE.md).
-
-Run (binaries open paths relative to `build/`, so run from there):
-
-```bash
-cd build && ./engine            # live 30s poll loop (Ctrl-C / SIGTERM stops cleanly)
-cd build && ./engine_backtest   # read-only evaluation against accumulated data
-```
-
-Generate a daily report:
-
-```bash
-python3 -m agent.hermes.daily_report --date 2026-05-24
-```
-
-Production-style operation (managed lifecycle, health, recovery, schedule):
-
-```bash
-./ops/start_engine.sh      # background, idempotent, verifies it stayed up
-./ops/status_engine.sh     # RUNNING/NOT + pid/uptime/last log line
-python3 ops/health_check.py   # 6-point read-only health board
-./ops/stop_engine.sh       # graceful SIGTERM → SIGKILL escalation
-crontab ops/crontab.example   # auto start/stop on session schedule + 10-min health probe
-```
-
-Optional systemd auto-restart unit: [`ops/systemd/`](ops/systemd/).
+Unavailable capabilities appear in the interface as disabled, labelled *Unavailable*. They
+are never mocked with placeholder numbers.
 
 ---
 
-## Roadmap
+## The dashboard
 
-| Phase | Goal | Money at risk |
-|---|---|---|
-| **0 — Foundation** ✅ | Feed, validation, SQLite ground truth, look-ahead-safe backtest, ops layer, docs | None |
-| **1 — Read-only MT5** ✅ (code) | Broker quotes via demo-only bridge; side-by-side feed comparison | None |
-| **2 — Observability dashboard** ✅ | Read-only Next.js dashboard: price, equity, calibration, health, Hermes reports | None |
-| **3 — Edge research** ⏳ | Weeks of session-aligned data; honest predictive baseline (logistic/GBM, walk-forward); replace hardcoded vol thresholds with empirical percentiles; demonstrate a *net-of-cost* edge | None |
-| **4 — Paper / demo execution** | Order ops behind the double gate, demo account only; reconcile fills vs. signals | Demo only |
-| **5 — Sized live** | Only if Phase 3 edge survives demo execution; small fixed size, kill-switch first | Real, minimal |
+Three routes, all read-only, all re-deriving their numbers from `engine.db`.
 
-The order is intentional: **prove survivability and honesty before alpha,
-prove alpha before risk.**
+**Overview (`/`)** — collection KPIs (symbols, ticks, signals, directional count, mean
+confidence, stale percentage); normalized multi-symbol price chart; the hypothetical equity
+curve; momentum mix, trade-quality grades and confidence histogram; confidence calibration;
+feed health; and the system-profile section.
 
----
+**Prediction (`/prediction`)** — out-of-sample AUC versus a permutation null, p-value,
+precision/recall, Brier score, net-of-cost result, reliability diagram, net-of-cost versus
+selectivity, and standardized feature importance.
 
-## Limitations (honest)
+**Reports (`/reports`)** — the Hermes archive with a date selector and full GFM markdown
+rendering.
 
-- **No demonstrated edge yet.** Current data is too small and shows ~zero net
-  return — expected at this stage, but it means this is research infra, not a
-  proven strategy.
-- **Tests cover the pure logic, not the I/O edges.** Validation, metrics, and
-  Hermes report generation are unit-tested and run in CI; the live HTTP fetch,
-  the SQLite writer, and the MT5 socket path are not yet covered by automated
-  tests (they're exercised manually / by mock mode).
-- **MT5-under-Wine dependency.** The single feed is an MQL5 EA writing a CSV
-  from MT5 running under Wine. MT5 itself is stable under Wine, but it's a
-  heavier setup than a hosted REST API and the terminal/EA must stay running for
-  collection to continue (a stall is detected, not silently ignored).
-- **30s polling, not tick-level.** This is a microstructure *engine* in
-  architecture; the current feed resolution is coarse. True microstructure work
-  needs the MT5 tick path matured.
-- **WTI is an ETF proxy (USO).** The true `WTI/USD` CFD is paid-tier; `USO`
-  tracks it imperfectly.
-- **Volatility thresholds are hardcoded**, not empirically calibrated yet.
-- **No predictive model yet** — "confidence" is a transparent heuristic, not a
-  learned model. An honest, walk-forward-validated baseline is the next step
-  (Phase 3), surfaced in the dashboard's calibration view.
-- **Single host, single process.** No HA; recovery is restart-based.
+**System health** — the header strip carries session clock, data source, engine status,
+last-update age and market-observation status; the feed-health panel shows per-symbol tick
+counts, last price, last tick time and frozen-feed detection mirroring
+`validation.cpp::isStale`.
+
+**Analytics, confidence and calibration** — signal composition by symbol, A/B/C/D grade
+distribution, a ten-bin confidence histogram, and forward-60s realized accuracy by
+confidence band. Calibration applies the same exclusions as the C++ backtest: neutral
+signals excluded, stale signals excluded, baseline required within 120 s before the signal,
+future tick required within 120 s of the horizon. Observations that fail a gate are
+**dropped, never imputed** — a band with no usable observations reports `null`, not `0`.
+
+**Research honesty** — the equity curve is labelled hypothetical everywhere it appears,
+because these signals were never traded. The model page renders its verdict verbatim,
+including the conclusion that the measured edge does not survive costs.
 
 ---
 
-## Why this system is technically interesting
+## Technical stack
 
-- **Immutable-ground-truth data model.** Raw ticks are never overwritten;
-  signals and quality scores are *derived* and re-derivable. Change a formula,
-  re-run history — no re-collection needed.
-- **Look-ahead bias is structurally prevented**, not just "avoided." Baseline
-  and future prices come from explicit at-or-before / at-or-after tick lookups
-  with downtime-gap tolerances; the backtest *excludes* rather than fabricates.
-- **Two binaries, one DB, zero shared mutable state.** The evaluation harness
-  links only sqlite3 and opens the DB read-only — analysis cannot corrupt data.
-- **Atomic, JOIN-safe writes.** All three per-cycle rows share a timestamp and
-  commit in one transaction, closing the orphan-row and silent-JOIN-loss races.
-- **Safety as an architectural property.** "No live trading" is enforced by the
-  *absence* of an execution path plus independent demo-only tripwires — not by a
-  config flag someone can flip.
-- **Production ops on a hobby budget.** Idempotent start/stop with
-  PID-recycling-aware liveness checks, graceful SIGTERM→SIGKILL escalation,
-  rotating logs, a 6-point health board, cron + optional systemd auto-recovery,
-  and infra-only Telegram alerting.
-- **Clean provider seam.** A single `IMarketDataProvider` interface isolates the
-  feed: the system was migrated from a REST API to an MT5 file-export reader by
-  swapping one ~70-line `FileProvider`, with zero changes to indicators,
-  validation, storage, or the schema.
-- **An analyst that grades itself.** Hermes auto-flags its own data-quality
-  problems and ties each recommendation to a specific source file.
+| Layer | Technology |
+|---|---|
+| Engine | C++17 · spdlog · SQLite3 |
+| Evaluation harness | C++17, links **only** sqlite3 — no engine code, no logging framework |
+| Analysis | Python 3 standard library (Hermes) · NumPy · pandas · scikit-learn · matplotlib (research) |
+| Database | SQLite — three tables, indexed on `(symbol, ts)` |
+| API | Next.js 14 App Router route handlers, Node runtime, GET only |
+| Frontend | React 18 · TypeScript 5.6 · Tailwind CSS 3.4 |
+| Visualization | Recharts 2.12 |
+| Markdown | react-markdown 9 · remark-gfm 4 |
+| Database driver | better-sqlite3 11 (optional dependency, opened `readonly: true`) |
+| Testing | Zero-framework C++ assertions + Python `unittest`, both driven by CTest |
+| Build | CMake ≥ 3.16 (out-of-source) · npm |
+| CI | GitHub Actions — C++ build and tests, dashboard build, ML pipeline reproduction |
+
+---
+
+## Database schema
+
+Three tables, each indexed on `(symbol, ts)`. Timestamps are unix seconds, UTC.
+
+```sql
+ticks(ts, symbol, price)                                              -- raw mid prices, never derived
+signals(ts, symbol, momentum, vol_score, vol_regime)                  -- indicator output per cycle
+quality_scores(ts, symbol, stale, session, confidence, trade_quality, grade)
+```
+
+The split is deliberate: signals and quality scores are **re-derivable** from ticks. Change
+a formula, re-run history — no re-collection needed. All three rows for a cycle share one
+timestamp and commit in a single transaction, so a JOIN can never silently drop a
+half-written cycle.
 
 ---
 
 ## Repository layout
 
 ```
-include/, src/        C++ engine — market_data / indicators / validation / storage / evaluation
-tests/                C++ unit tests (CTest, zero external framework)
-.github/workflows/    CI: build + test on every push/PR
-dashboard/            Next.js read-only observability dashboard (TS/Tailwind/Recharts)
-agent/hermes/         Python read-only daily analyst (Hermes) — tests in agent/hermes/tests/
-agent/mt5_bridge/     Python MT5 sidecar (read-only, demo-gated)
-ops/                  Production scripts: start/stop/status/health/recovery/cron/systemd
-docs/                 Operations architecture, runbook, recovery, Monday checklist, MT5 setup
-reports/snapshots/    Sample backtest + health snapshots (showcase)
-data/                 SQLite ground truth (gitignored)
-config/, logs/, run/  Secrets / logs / PID files (gitignored)
+market-microstructure-engine/
+├── CMakeLists.txt              Three targets: engine, engine_backtest, unit_tests
+├── API_CONTRACT.md             Frozen v1.0 data contracts — authoritative for UI work
+├── CURRENT_STATUS.md           Verified state, data inventory, decision log, release audit
+├── UI_EXECUTION_PLAN.md        Phased UI plan and engine-side unblockers
+├── CLAUDE.md                   Deep engineering reference
+│
+├── include/                    Public headers, mirroring src/
+├── src/
+│   ├── main.cpp                Control loop, signal handling, per-symbol processing
+│   ├── market_data/            file_provider.cpp — reads the EA's CSV
+│   ├── indicators/             momentum.cpp · volatility.cpp
+│   ├── validation/             validation.cpp — staleness, session, confidence, quality
+│   ├── storage/                sqlite_logger.cpp — best-effort, never crashes the engine
+│   └── evaluation/             main.cpp (SQL + printing) · metrics.cpp (pure math)
+├── tests/                      unit_tests.cpp — zero external test framework
+│
+├── dashboard/
+│   ├── app/                    3 routes + 8 API route handlers + error/loading boundaries
+│   ├── components/             shell · layout · charts · states · portfolio · ui
+│   └── lib/                    db · analytics · quant · api · client · useLiveData · types
+│
+├── agent/
+│   ├── hermes/                 Read-only Python analyst + tests
+│   ├── mt5_bridge/             mt5_file_export.mq5 — the MQL5 exporter
+│   └── research/               Walk-forward baseline; results/ committed
+│
+├── ops/                        start/stop/status/health/recovery/cron/systemd
+├── docs/                       Operations, runbook, recovery, MT5 setup, img/
+├── reports/snapshots/          Sample backtest and health snapshots
+└── data/                       SQLite ground truth (gitignored)
 ```
 
-See [`CLAUDE.md`](CLAUDE.md) for the deep engineering reference.
+---
+
+## Running
+
+### Requirements
+
+The engine targets Linux. System dependencies (Ubuntu):
+
+```bash
+sudo apt install build-essential cmake libspdlog-dev libsqlite3-dev sqlite3 python3
+```
+
+Node.js 20+ for the dashboard.
+
+### Build
+
+```bash
+cmake -S . -B build
+cmake --build build
+```
+
+Produces `build/engine`, `build/engine_backtest` and `build/unit_tests`.
+
+### Test
+
+```bash
+ctest --test-dir build --output-on-failure                     # C++ and Hermes suites
+./build/unit_tests                                             # C++ only
+python3 -m unittest agent.hermes.tests.test_daily_report -v    # Hermes only
+```
+
+### Run the engine
+
+Both binaries resolve paths relative to the working directory, so run them from `build/`:
+
+```bash
+export MME_QUOTES_CSV="$HOME/.mt5/drive_c/Program Files/<Terminal>/MQL5/Files/mme_quotes.csv"
+ops/check_quotes.sh "$MME_QUOTES_CSV"      # expect: QUOTES OK: fresh
+
+cd build && ./engine                       # live 30s loop, clean SIGTERM shutdown
+cd build && ./engine_backtest              # read-only evaluation
+cd build && ./engine_backtest /path/other.db
+```
+
+Environment overrides: `MME_QUOTES_CSV`, `MME_FILE_STALE_S` (default 120), `MME_DB_PATH`
+(default `../data/engine.db`).
+
+MetaTrader/Wine setup: [`docs/MT5_BRIDGE.md`](docs/MT5_BRIDGE.md).
+
+### Managed operation
+
+```bash
+./ops/start_engine.sh          # idempotent background start, verifies it stayed up
+./ops/status_engine.sh         # RUNNING/NOT + pid, uptime, last log line
+python3 ops/health_check.py    # 6-point read-only health board
+./ops/stop_engine.sh           # SIGTERM, then SIGKILL escalation
+./ops/run_eod_pipeline.sh      # health + backtest snapshot + Hermes report
+```
+
+Optional systemd units for 24/5 operation: [`ops/systemd/`](ops/systemd/).
+
+### Running the dashboard
+
+```bash
+cd dashboard
+npm install
+npm run build
+npm start                                          # http://localhost:3000 — DEMO data
+DASHBOARD_DB_PATH=../data/engine.db npm start      # live, read-only against engine.db
+```
+
+Without `DASHBOARD_DB_PATH` the dashboard renders a deterministic synthetic session derived
+with the engine's own formulas, clearly badged as demo. When a path is supplied but cannot
+be used, the interface says exactly why (for example *"DASHBOARD_DB_PATH is not set"*)
+rather than silently falling back.
+
+Other variables: `DASHBOARD_REPORTS_DIR`, `DASHBOARD_MODEL_PATH`, `DASHBOARD_CACHE_TTL_MS`
+(default 5000).
+
+---
+
+## API
+
+Eight `GET` endpoints, Node runtime, `Cache-Control: no-store`, no write methods anywhere.
+Success payloads are returned unwrapped; every failure answers with
+`{ "error": { "code", "message" } }` and a 4xx/5xx status. Full schemas:
+[`API_CONTRACT.md`](API_CONTRACT.md) (frozen at v1.0).
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/overview` | Provenance, symbols, row counts, stale percentage, momentum mix, mean confidence, collection window |
+| `GET /api/prices` | Per-symbol `{ts, price}` series, downsampled to ≤300 points |
+| `GET /api/signals` | Per-symbol momentum mix, grade counts, regime and session distributions, confidence histogram, calibration bands |
+| `GET /api/equity` | Hypothetical cumulative fwd-60s return (gross and net) plus summary statistics |
+| `GET /api/health` | Per-symbol tick counts, last price, tick age, frozen-feed flags |
+| `GET /api/model` | Walk-forward model metrics, calibration points, feature importance, net-of-cost curve, verdict |
+| `GET /api/reports` | Available Hermes report dates, newest first |
+| `GET /api/reports/{date}` | One report's markdown; `404` with the standard error body when absent |
+
+There is no authentication layer and none is planned while the surface is read-only — bind
+to localhost.
+
+---
+
+## Performance
+
+Measured on the release build; no synthetic benchmarks and no latency claims.
+
+| Metric | Measured value |
+|---|---|
+| Engine cycle | 30 s poll loop, three symbols per cycle |
+| Feed staleness threshold | 120 s (file mtime), configurable |
+| Dashboard poll interval | 10 s, paused while the tab is hidden (verified: 0 requests over 25 s hidden) |
+| Server dataset cache | 5 s TTL **and** `engine.db` mtime invalidation — verified to pick up new rows without a restart |
+| First-load JS | `/` 214 kB · `/prediction` 202 kB · `/reports` 135 kB |
+| Test suite | 2/2 CTest suites pass — C++ unit tests ~0.01 s, Hermes ~0.6 s |
+| Responsive layout | No horizontal page overflow at 375 / 768 / 1440 px |
+| Accessibility spot-check | No unnamed interactive controls, no missing image alt text, no heading-level skips |
+
+**Not measured, and therefore not claimed:** wire latency, order-ack latency, throughput
+under load, and any HFT-class timing. The system polls a file every 30 seconds; it is not a
+low-latency system and does not pretend to be one.
+
+### Current research result
+
+From `agent/research/results/model_results.json`, computed on a disclosed synthetic session
+because the live database does not yet contain enough directional variance to train on:
+
+| Metric | Value |
+|---|---|
+| Out-of-sample AUC | 0.545 versus permutation null 0.498 ± 0.009, p = 0.032 |
+| Precision / Recall | 0.54 / 0.47 |
+| Brier score | 0.250 |
+| Gross return | +8.46 % over 3,932 trades |
+| **Net of cost** | **−57.05 %** |
+
+**Verdict: a weak, statistically-real directional signal that transaction costs erase. No
+deployable edge.** That is the correct finding for this data resolution, and reporting it is
+the point of the system.
+
+---
+
+## Roadmap
+
+All items below are **future work**. Nothing here is implemented.
+
+| Phase | Goal | Money at risk |
+|---|---|---|
+| Persist bid/ask | Add nullable `bid`/`ask` to `ticks`, unlocking the first genuine spread metrics | None |
+| Cycle instrumentation | A `cycle_timings` table for fetch/compute/persist durations | None |
+| Edge research | Weeks of session-aligned collection; empirical volatility percentiles replacing hardcoded thresholds; a net-of-cost edge demonstrated or refuted | None |
+| Tick-level feed | Move beyond 30-second snapshots — required before any claim about microstructure | None |
+| Paper / demo execution | Order operations behind an explicit gate, demo account only | Demo only |
+| Sized live | Only if an edge survives demo execution; small fixed size, kill-switch first | Real, minimal |
+
+The order is deliberate: prove survivability and honesty before alpha, prove alpha before
+risk.
+
+---
+
+## Known limitations
+
+- **No demonstrated edge.** Current data is small and net return is negative after costs.
+- **30-second polling, not tick-level.** The architecture is a microstructure engine; the
+  current feed resolution is coarse. This is the single biggest gap between the name and the
+  data.
+- **Mid prices only.** Bid/ask are read from the feed and discarded at persistence time.
+- **Tests cover pure logic, not I/O edges.** Validation, metrics and Hermes report
+  generation are unit-tested; the file reader, SQLite writer and MT5 path are not.
+- **MT5-under-Wine dependency.** The terminal and Expert Advisor must stay running; a stall
+  is detected, not silently ignored.
+- **Volatility thresholds are hardcoded**, not empirically calibrated.
+- **`USO` is an ETF proxy** for crude, not the underlying CFD.
+- **Single host, single process.** No high availability; recovery is restart-based.
+
+---
+
+## Why this project exists
+
+This was built as a systems-and-quant engineering exercise with one governing rule: **never
+present a number the data does not support.**
+
+That rule produced most of the design decisions worth discussing here — separating raw ticks
+from derived signals so formulas can be re-run over history; making the evaluation harness a
+separate binary that links only sqlite3 so it cannot touch engine state; excluding
+observations that span downtime instead of interpolating across them; carrying data
+provenance all the way into the interface so a demo session can never be mistaken for live
+data; and shipping a dashboard that labels its own equity curve hypothetical and its own
+model verdict negative.
+
+The uncomfortable result — a statistically real signal that transaction costs destroy — is
+the honest output of the pipeline, and it is displayed as prominently as anything else. A
+backtest claiming otherwise on this data would be lying.
 
 ---
 
@@ -476,5 +515,12 @@ See [`CLAUDE.md`](CLAUDE.md) for the deep engineering reference.
 
 See [LICENSE](LICENSE) if present; otherwise all rights reserved by the author.
 
-_Built as a serious systems-and-quant engineering exercise: honest data,
-honest backtests, honest limits._
+---
+
+<div align="center">
+
+**Read-only research system · no broker connection · no order routing · all times UTC**
+
+[API contract](API_CONTRACT.md) · [Current status](CURRENT_STATUS.md) · [Execution plan](UI_EXECUTION_PLAN.md) · [Engineering reference](CLAUDE.md) · [Operations](docs/OPERATIONS.md)
+
+</div>
