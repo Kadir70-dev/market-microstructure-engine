@@ -25,8 +25,14 @@ body {
   margin: 1.1rem 0 0.4rem;
   color: #38bdf8;
 }
+/* Hermes tables are wide (8+ columns). `display: block` lets the table scroll
+   inside itself instead of forcing its grid column past the viewport, which
+   otherwise pushes the whole reports page into horizontal scroll on mobile. */
 .prose-report table {
+  display: block;
   width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
   border-collapse: collapse;
   margin: 0.5rem 0;
   font-size: 0.85rem;
@@ -54,6 +60,9 @@ body {
   padding: 1px 5px;
   border-radius: 4px;
   font-size: 0.82rem;
+  /* Hermes embeds absolute DB paths; without this the unbreakable token sets
+     the grid column's min-content width and scrolls the whole page on mobile. */
+  overflow-wrap: anywhere;
 }
 .prose-report hr {
   border-color: #1f2937;

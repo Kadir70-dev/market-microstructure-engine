@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { handle } from "@/lib/api";
 import { loadDataset } from "@/lib/db";
 import { priceSeries } from "@/lib/analytics";
 
@@ -6,6 +6,5 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const ds = loadDataset();
-  return NextResponse.json(priceSeries(ds));
+  return handle(() => priceSeries(loadDataset()));
 }

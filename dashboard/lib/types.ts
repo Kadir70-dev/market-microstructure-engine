@@ -29,4 +29,7 @@ export interface Dataset {
   quality: Quality[];
   source: "live" | "demo";
   dbPath: string | null;
+  // Why `source` is what it is. null when live data loaded cleanly; a human
+  // reason string when the loader fell back to demo.
+  sourceReason?: string | null;
 }

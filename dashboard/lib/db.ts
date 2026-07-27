@@ -11,27 +11,71 @@ import type { Dataset, Quality, Signal, Tick } from "./types";
 
 const DB_PATH = process.env.DASHBOARD_DB_PATH || "";
 
-// Cache for the process lifetime of a dev/prod server. Live data refreshes on
-// restart; for a true live feed you'd drop the cache TTL — kept simple here.
-let cache: Dataset | null = null;
+// The engine appends a cycle every 30s, so a process-lifetime cache would pin
+// the UI to whatever existed at boot. Cache is therefore bounded twice: by a
+// short TTL *and* by the DB file's mtime — a write invalidates immediately,
+// while a quiet DB still absorbs bursts of requests with one read.
+const CACHE_TTL_MS = Number(process.env.DASHBOARD_CACHE_TTL_MS || 5000);
+
+interface CacheEntry {
+  ds: Dataset;
+  loadedAtMs: number;
+  mtimeMs: number | null;
+}
+
+let cache: CacheEntry | null = null;
+
+function dbMtimeMs(): number | null {
+  if (!DB_PATH) return null;
+  try {
+    return fs.statSync(DB_PATH).mtimeMs;
+  } catch {
+    return null;
+  }
+}
 
 export function loadDataset(): Dataset {
-  if (cache) return cache;
+  const nowMs = Date.now();
+  const mtimeMs = dbMtimeMs();
 
-  if (DB_PATH && fs.existsSync(DB_PATH)) {
-    try {
-      cache = loadFromSqlite(DB_PATH);
-      if (cache.ticks.length > 0) return cache;
-    } catch (err) {
-      // Native module missing or DB unreadable — fall through to demo.
-      console.warn(
-        `[dashboard] could not read ${DB_PATH} (${(err as Error).message}); using DEMO data`,
-      );
-    }
+  if (
+    cache &&
+    cache.mtimeMs === mtimeMs &&
+    nowMs - cache.loadedAtMs < CACHE_TTL_MS
+  ) {
+    return cache.ds;
   }
 
-  cache = demoDataset();
-  return cache;
+  const ds = readDataset(mtimeMs);
+  cache = { ds, loadedAtMs: nowMs, mtimeMs };
+  return ds;
+}
+
+// Why the dataset ended up demo when live was requested — surfaced to the UI so
+// "live" failing over to "demo" is visible instead of silent.
+function readDataset(mtimeMs: number | null): Dataset {
+  if (!DB_PATH) {
+    return { ...demoDataset(), sourceReason: "DASHBOARD_DB_PATH is not set" };
+  }
+  if (mtimeMs === null) {
+    return {
+      ...demoDataset(),
+      sourceReason: `DASHBOARD_DB_PATH=${DB_PATH} does not exist or is unreadable`,
+    };
+  }
+  try {
+    const live = loadFromSqlite(DB_PATH);
+    if (live.ticks.length > 0) return live;
+    return {
+      ...demoDataset(),
+      sourceReason: `${DB_PATH} has no ticks yet (engine has not collected data)`,
+    };
+  } catch (err) {
+    // Native module missing or DB unreadable — fall through to demo.
+    const message = (err as Error).message;
+    console.warn(`[dashboard] could not read ${DB_PATH} (${message}); using DEMO data`);
+    return { ...demoDataset(), sourceReason: `could not read ${DB_PATH}: ${message}` };
+  }
 }
 
 function loadFromSqlite(path: string): Dataset {
@@ -56,7 +100,7 @@ function loadFromSqlite(path: string): Dataset {
           )
           .all() as Quality[])
       : [];
-    return { ticks, signals, quality, source: "live", dbPath: path };
+    return { ticks, signals, quality, source: "live", dbPath: path, sourceReason: null };
   } finally {
     db.close();
   }

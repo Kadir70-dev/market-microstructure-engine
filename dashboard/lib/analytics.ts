@@ -66,6 +66,7 @@ export function overview(ds: Dataset) {
   const tsAll = ds.ticks.map((t) => t.ts);
   return {
     source: ds.source,
+    sourceReason: ds.sourceReason ?? null,
     dbPath: ds.dbPath,
     symbols,
     nTicks: ds.ticks.length,
@@ -245,6 +246,7 @@ export function health(ds: Dataset) {
   const anyStale = ds.quality.some((q) => q.stale);
   return {
     source: ds.source,
+    sourceReason: ds.sourceReason ?? null,
     nTicks: ds.ticks.length,
     perSymbol,
     staleFlagsPresent: anyStale,

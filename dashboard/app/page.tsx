@@ -1,3 +1,5 @@
+"use client";
+
 import {
   CalibrationChart,
   ConfidenceHistogram,
@@ -7,17 +9,12 @@ import {
   SignalMixChart,
 } from "@/components/charts";
 import { Card, DemoBanner, Stat } from "@/components/ui";
-import {
-  confidenceCalibration,
-  equityCurve,
-  health,
-  overview,
-  priceSeries,
-  signalAnalytics,
-} from "@/lib/analytics";
-import { loadDataset } from "@/lib/db";
-
-export const dynamic = "force-dynamic";
+import { EmptyPanel, PanelError, PanelLoading } from "@/components/states";
+import type { EquityPayload, PricesPayload, SignalsPayload } from "@/lib/api-types";
+import { useLiveData } from "@/lib/useLiveData";
+import { KpiRow, PanelAction, SectionGrid, SectionHeading, StatusBadge } from "@/components/layout";
+import { useSharedLiveData } from "@/components/live-context";
+import { PortfolioHero, PortfolioShowcase } from "@/components/portfolio";
 
 function fmtDate(ts: number | null): string {
   if (ts === null) return "—";
@@ -26,28 +23,34 @@ function fmtDate(ts: number | null): string {
 }
 
 export default function DashboardPage() {
-  const ds = loadDataset();
-  const ov = overview(ds);
-  const prices = priceSeries(ds);
-  const sig = signalAnalytics(ds);
-  const calib = confidenceCalibration(ds);
-  const eq = equityCurve(ds);
-  const hl = health(ds);
+  const { overview: overviewQuery, health: healthQuery } = useSharedLiveData();
+  const pricesQuery = useLiveData<PricesPayload>("/api/prices");
+  const signalsQuery = useLiveData<SignalsPayload>("/api/signals");
+  const equityQuery = useLiveData<EquityPayload>("/api/equity");
+  const ov = overviewQuery.data;
+  const prices = pricesQuery.data;
+  const sig = signalsQuery.data;
+  const eq = equityQuery.data;
+  const hl = healthQuery.data;
 
-  const totalDirectional = (ov.momentum.Bullish || 0) + (ov.momentum.Bearish || 0);
+  const totalDirectional = ov ? (ov.momentum.Bullish || 0) + (ov.momentum.Bearish || 0) : null;
+  const gradeCount = sig ? Object.values(sig.grades).reduce((sum, count) => sum + count, 0) : 0;
+  const confidenceCount = sig ? sig.confidenceHistogram.reduce((sum, bin) => sum + bin.count, 0) : 0;
 
   return (
-    <div>
-      <DemoBanner source={ov.source} />
+    <div className="space-y-4 sm:space-y-5">
+      <PortfolioHero overview={ov} health={hl} lastUpdated={overviewQuery.lastUpdated} />
+      {ov && <DemoBanner source={ov.source} sourceReason={ov.sourceReason} />}
 
       {/* KPI row */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+      <SectionHeading eyebrow="01 · Snapshot" title="Collection overview" description="Counts and quality indicators from the current engine dataset window." />
+      {overviewQuery.loading && !ov ? <PanelLoading label="Loading collection overview…" /> : overviewQuery.error ? <PanelError message={overviewQuery.error.message} retry={() => void overviewQuery.refresh()} /> : ov ? <KpiRow>
         <Stat label="Symbols" value={ov.symbols.length} hint={ov.symbols.join(" · ")} />
         <Stat label="Ticks" value={ov.nTicks.toLocaleString()} tone="accent" />
         <Stat label="Signals" value={ov.nSignals.toLocaleString()} />
         <Stat
           label="Directional"
-          value={totalDirectional.toLocaleString()}
+          value={totalDirectional!.toLocaleString()}
           hint={`${ov.momentum.Neutral || 0} neutral`}
         />
         <Stat
@@ -61,26 +64,29 @@ export default function DashboardPage() {
           tone={ov.stalePct > 30 ? "bear" : "default"}
           hint={`${ov.stale} flagged`}
         />
-      </div>
+      </KpiRow> : <EmptyPanel reason="engine has not collected overview data yet" />}
 
-      <p className="text-xs text-slate-500 mb-6">
+      {ov && <p className="border-y border-edge/40 py-2 text-[10px] uppercase tracking-[0.06em] text-slate-600">
         Window: {fmtDate(ov.firstTs)} → {fmtDate(ov.lastTs)} ·{" "}
         {ov.source === "live" ? `source: ${ov.dbPath}` : "source: synthetic demo session"}
-      </p>
+      </p>}
 
       {/* Prices + Equity */}
-      <div className="grid lg:grid-cols-2 gap-4 mb-4">
+      <SectionHeading eyebrow="02 · Market & research" title="Price context and hypothetical outcome" description="Mid-price normalization beside the explicitly hypothetical forward-return diagnostic." />
+      <SectionGrid>
         <Card
           title="Price (normalized to 100 at session start)"
           subtitle="Multi-symbol overlay — relative move, scale-invariant"
+          action={<PanelAction title="Mid-price snapshots collected every 30 seconds">Mid · 30s</PanelAction>}
         >
-          <PriceChart series={prices} />
+          {pricesQuery.loading && !prices ? <PanelLoading label="Loading price series…" /> : pricesQuery.error ? <PanelError message={pricesQuery.error.message} retry={() => void pricesQuery.refresh()} /> : prices && Object.values(prices).some((points) => points.length) ? <PriceChart series={prices} /> : <EmptyPanel reason="engine has not collected price data yet" />}
         </Card>
         <Card
           title="Hypothetical equity curve"
           subtitle="Signals are NOT traded — cumulative fwd-60s directional return, gross vs net of round-trip cost"
+          action={<StatusBadge tone="synthetic">Research</StatusBadge>}
         >
-          <EquityCurveChart points={eq.points} />
+          {equityQuery.loading && !eq ? <PanelLoading label="Loading hypothetical equity diagnostic…" /> : equityQuery.error ? <PanelError message={equityQuery.error.message} retry={() => void equityQuery.refresh()} /> : eq && eq.points.length ? <><EquityCurveChart points={eq.points} />
           {eq.stats.cumGrossPct > 0 && eq.stats.cumNetPct < 0 && (
             <p className="text-xs text-amber-400/90 mt-2 leading-relaxed">
               ⓘ Gross edge is positive but <strong>net is negative</strong>:
@@ -110,32 +116,36 @@ export default function DashboardPage() {
               </span>
             </span>
           </div>
+          </> : <EmptyPanel reason="no hypothetical forward observations are computable yet" />}
         </Card>
-      </div>
+      </SectionGrid>
 
       {/* Signal analytics */}
-      <div className="grid lg:grid-cols-3 gap-4 mb-4">
-        <Card title="Momentum mix by symbol">
-          <SignalMixChart perSymbol={sig.perSymbol} />
+      <SectionHeading eyebrow="03 · Signals" title="Composition and confidence" description="Signal direction, trade-quality grades, and the reported confidence-score distribution." />
+      <SectionGrid columns={3}>
+        <Card title="Momentum mix by symbol" action={<PanelAction>Signals</PanelAction>}>
+          {signalsQuery.loading && !sig ? <PanelLoading label="Loading signal mix…" /> : signalsQuery.error ? <PanelError message={signalsQuery.error.message} retry={() => void signalsQuery.refresh()} /> : sig && Object.keys(sig.perSymbol).length ? <SignalMixChart perSymbol={sig.perSymbol} /> : <EmptyPanel reason="engine has not collected signals yet" />}
         </Card>
-        <Card title="Trade-quality grade distribution" subtitle="A≥75 · B≥50 · C≥25 · D<25">
-          <GradeDonut grades={sig.grades} />
+        <Card title="Trade-quality grade distribution" subtitle="A≥75 · B≥50 · C≥25 · D<25" action={<PanelAction>Quality</PanelAction>}>
+          {signalsQuery.loading && !sig ? <PanelLoading label="Loading grade distribution…" /> : signalsQuery.error ? <PanelError message={signalsQuery.error.message} retry={() => void signalsQuery.refresh()} /> : sig && gradeCount > 0 ? <GradeDonut grades={sig.grades} /> : <EmptyPanel reason="no trade-quality grades are available in this window" />}
         </Card>
-        <Card title="Confidence distribution" subtitle="histogram of 0–100 score">
-          <ConfidenceHistogram bins={sig.confidenceHistogram} />
+        <Card title="Confidence distribution" subtitle="histogram of 0–100 score" action={<PanelAction>Score</PanelAction>}>
+          {signalsQuery.loading && !sig ? <PanelLoading label="Loading confidence distribution…" /> : signalsQuery.error ? <PanelError message={signalsQuery.error.message} retry={() => void signalsQuery.refresh()} /> : sig && confidenceCount > 0 ? <ConfidenceHistogram bins={sig.confidenceHistogram} /> : <EmptyPanel reason="no confidence scores are available in this window" />}
         </Card>
-      </div>
+      </SectionGrid>
 
       {/* Calibration + Health */}
-      <div className="grid lg:grid-cols-2 gap-4 mb-4">
+      <SectionHeading eyebrow="04 · Validation" title="Calibration and feed condition" description="Look-ahead-safe directional calibration beside DB-derived feed freshness and frozen-feed checks." />
+      <SectionGrid>
         <Card
           title="Confidence calibration"
           subtitle="Does higher confidence → higher realized fwd-60s accuracy? (look-ahead-safe, stale/neutral excluded)"
+          action={<PanelAction>Fwd 60s</PanelAction>}
         >
-          <CalibrationChart calibration={calib} />
+          {signalsQuery.loading && !sig ? <PanelLoading label="Loading calibration…" /> : signalsQuery.error ? <PanelError message={signalsQuery.error.message} retry={() => void signalsQuery.refresh()} /> : sig && sig.calibration.some((band) => band.n > 0) ? <CalibrationChart calibration={sig.calibration} /> : <EmptyPanel reason="no look-ahead-safe calibration observations are computable yet" />}
         </Card>
-        <Card title="Feed health" subtitle="per-symbol last tick, age, and frozen-feed detection">
-          <div className="overflow-x-auto">
+        <Card title="Feed health" subtitle="per-symbol last tick, age, and frozen-feed detection" action={hl ? <StatusBadge tone={hl.perSymbol.some((item) => item.frozen) ? "warning" : "healthy"}>{hl.perSymbol.some((item) => item.frozen) ? "Warning" : "Healthy"}</StatusBadge> : <StatusBadge tone="neutral">Checking</StatusBadge>}>
+          {healthQuery.loading && !hl ? <PanelLoading label="Loading feed health…" /> : healthQuery.error ? <PanelError message={healthQuery.error.message} retry={() => void healthQuery.refresh()} /> : hl && hl.perSymbol.length ? <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-slate-500 text-left text-xs border-b border-edge">
@@ -159,25 +169,26 @@ export default function DashboardPage() {
                     </td>
                     <td>
                       {s.frozen ? (
-                        <span className="text-bear">● frozen</span>
+                        <StatusBadge tone="warning">Warning</StatusBadge>
                       ) : (
-                        <span className="text-bull">● live</span>
+                        <StatusBadge tone="healthy">Healthy</StatusBadge>
                       )}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
-          <p className="text-xs text-slate-500 mt-3">
+          </div> : <EmptyPanel reason="engine has not collected feed-health data yet" />}
+          {hl && <p className="text-xs text-slate-500 mt-3">
             Staleness mirrors <code>validation/isStale</code>: ≥5 byte-identical
             ticks ⇒ frozen. {hl.staleFlagsPresent ? "Stale flags present in this window." : "No stale flags in this window."}
-          </p>
+          </p>}
         </Card>
-      </div>
+      </SectionGrid>
 
       <Card
         title="Why this dashboard exists"
+        action={<StatusBadge tone="neutral">Read only</StatusBadge>}
         className="text-sm text-slate-400 leading-relaxed"
       >
         Read-only observability over the engine&apos;s SQLite ground truth. Every
@@ -187,6 +198,7 @@ export default function DashboardPage() {
         prices. The equity curve is explicitly hypothetical: this system{" "}
         <span className="text-bear">does not place trades</span>.
       </Card>
+      <PortfolioShowcase />
     </div>
   );
 }
