@@ -1,0 +1,41 @@
+{
+  "strategy": "baseline_scalper",
+  "version": "1.0.0",
+  "mode": "paper_only",
+  "calibration_status": "NOT_CALIBRATED",
+  "queue_validation_status": "NOT_VALIDATED",
+  "notes": [
+    "Architecture Part 4: Python emits params, C++ validates schema and both hashes",
+    "and refuses to start on mismatch. The hash fields below are placeholders until",
+    "a Phase 8 research run produces a signed parameter set.",
+    "Thresholds here are structural defaults, not fitted values. No optimisation has",
+    "been run against any dataset, because Gate A requires 3 months of real recorded",
+    "data and the current capture is 17 minutes.",
+    "queue_imbalance and ofi are NOT_VALIDATED on L1_ONLY feeds: MT5 forex publishes",
+    "volume 0 at top of book, so both signals report themselves cold rather than",
+    "returning a plausible zero."
+  ],
+  "training_dataset_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "content_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "params": {
+    "strategy_id": 1,
+    "volume": 1,
+
+    "entry_queue_imbalance": 0.35,
+    "entry_ofi": 0.0,
+    "require_ofi_agreement": true,
+    "max_spread_ticks": 20,
+    "min_volatility": 0.0,
+    "max_volatility": 1.0,
+
+    "take_profit_ticks": 10,
+    "stop_loss_ticks": 10,
+    "max_hold_ns": 120000000000,
+
+    "cooldown_ns": 30000000000,
+    "max_positions": 1,
+    "allow_averaging_down": false,
+
+    "required_signals": ["queue_imbalance", "spread"]
+  }
+}

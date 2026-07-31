@@ -1,0 +1,70 @@
+{
+  "strategy": "mt5_l1_scalper",
+  "version": "1.0.0",
+  "mode": "paper_only",
+  "calibration_status": "NOT_CALIBRATED",
+  "feed_compatibility": "L1_ONLY",
+  "notes": [
+    "Built for MT5 forex, which publishes volume 0 at top of book. Uses only",
+    "bid/ask, spread and time. Deliberately uses NO queue imbalance, NO OFI, NO",
+    "volume and NO synthesised depth — those are undefined on this feed and the",
+    "depth-based baseline_scalper correctly declines every quote because of it.",
+    "",
+    "Thresholds are STRUCTURAL DEFAULTS, not fitted values. No optimisation has",
+    "been run against any dataset. Gate A requires 3 months of real recorded",
+    "data; at time of writing the capture is hours old.",
+    "",
+    "entry_momentum is a mean log return per quote. FX ticks are ~1e-5 relative",
+    "moves, so the scale is necessarily small; it is not a percentage.",
+    "",
+    "Architecture Part 4: params are emitted by research and validated by C++",
+    "against both hashes, which refuses to start on mismatch. The hashes below",
+    "are placeholders until a Phase 8 run produces a signed set."
+  ],
+  "training_dataset_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "content_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "signals_used": [
+    "spread", "spread_ratio", "mid_return", "momentum",
+    "acceleration", "volatility", "quote_rate"
+  ],
+  "signals_prohibited": [
+    "queue_imbalance", "ofi", "volume", "synthetic_depth"
+  ],
+  "params": {
+    "strategy_id": 2,
+    "volume": 1,
+
+    "entry_momentum": 2.0e-6,
+    "require_acceleration_agreement": true,
+    "max_spread_ticks": 20,
+    "max_spread_ratio": 1.50,
+    "min_volatility": 1.0e-7,
+    "max_volatility": 5.0e-5,
+    "min_quote_rate": 0.5,
+
+    "take_profit_ticks": 10,
+    "stop_loss_ticks": 10,
+    "max_hold_ns": 120000000000,
+
+    "cooldown_ns": 30000000000,
+    "max_positions": 1,
+    "max_consecutive_losses": 5,
+    "allow_averaging_down": false,
+
+    "required_signals": ["spread", "momentum", "volatility"]
+  },
+  "safety": {
+    "PAPER_TRADING": true,
+    "LIVE_TRADING": false,
+    "broker": "PaperBroker",
+    "hard_stop_loss": true,
+    "take_profit": true,
+    "time_based_exit": true,
+    "cooldown_after_exit": true,
+    "stale_feed_halt": true,
+    "consecutive_loss_halt": true,
+    "daily_loss_halt": "enforced by RiskEngine limits.max_daily_loss",
+    "no_averaging_down": true,
+    "max_open_positions": 1
+  }
+}

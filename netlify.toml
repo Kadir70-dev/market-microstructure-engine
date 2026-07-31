@@ -1,0 +1,23 @@
+# Netlify deployment — dashboard only.
+#
+# This repository is a C++ engine plus a read-only Next.js dashboard. Only the
+# dashboard is deployable: the engine, SQLite ground truth, Hermes analyst and
+# research pipeline all run on a host with a filesystem and are NOT part of this
+# build. `base` scopes the entire deploy to dashboard/ so nothing else ships.
+#
+# With no DASHBOARD_DB_PATH set (see below), the dashboard renders its
+# deterministic synthetic demo session and says so on every page.
+
+[build]
+  base = "dashboard"
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  # Next.js 14.2 requires Node >= 18.17; pin for reproducible builds.
+  NODE_VERSION = "20"
+
+# Official Next.js runtime: builds the App Router route handlers into Netlify
+# Functions so /api/* keeps working, and serves the static shell from the CDN.
+[[plugins]]
+  package = "@netlify/plugin-nextjs"

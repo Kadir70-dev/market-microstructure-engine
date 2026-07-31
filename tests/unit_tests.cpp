@@ -16,8 +16,9 @@
 #include <iostream>
 #include <vector>
 
-#include "validation/validation.hpp"
 #include "evaluation/metrics.hpp"
+#include "platform/time_compat.hpp"
+#include "validation/validation.hpp"
 
 namespace {
 
@@ -59,8 +60,45 @@ std::chrono::system_clock::time_point utc_tp(
     tm.tm_hour = h;
     tm.tm_min  = mi;
     tm.tm_sec  = s;
-    std::time_t t = timegm(&tm);
+    std::time_t t = platform::timegm_utc(tm);
     return std::chrono::system_clock::from_time_t(t);
+}
+
+void test_time_compat() {
+    std::tm epoch_tm{};
+    epoch_tm.tm_year = 70;
+    epoch_tm.tm_mon = 0;
+    epoch_tm.tm_mday = 1;
+
+    const std::time_t epoch = platform::timegm_utc(epoch_tm);
+    CHECK(epoch == 0);
+
+    std::tm epoch_utc{};
+    CHECK(platform::gmtime_utc(epoch, epoch_utc));
+    CHECK(epoch_utc.tm_year == 70);
+    CHECK(epoch_utc.tm_mon == 0);
+    CHECK(epoch_utc.tm_mday == 1);
+    CHECK(epoch_utc.tm_hour == 0);
+    CHECK(epoch_utc.tm_min == 0);
+    CHECK(epoch_utc.tm_sec == 0);
+
+    std::tm leap_day{};
+    leap_day.tm_year = 2024 - 1900;
+    leap_day.tm_mon = 2 - 1;
+    leap_day.tm_mday = 29;
+    leap_day.tm_hour = 12;
+    leap_day.tm_min = 34;
+    leap_day.tm_sec = 56;
+
+    const std::time_t leap_time = platform::timegm_utc(leap_day);
+    std::tm leap_utc{};
+    CHECK(platform::gmtime_utc(leap_time, leap_utc));
+    CHECK(leap_utc.tm_year == 2024 - 1900);
+    CHECK(leap_utc.tm_mon == 2 - 1);
+    CHECK(leap_utc.tm_mday == 29);
+    CHECK(leap_utc.tm_hour == 12);
+    CHECK(leap_utc.tm_min == 34);
+    CHECK(leap_utc.tm_sec == 56);
 }
 
 // ---- validation: isStale ------------------------------------------------
@@ -238,6 +276,7 @@ void test_confidenceBand() {
 }  // namespace
 
 int main() {
+    test_time_compat();
     test_isStale();
     test_detectSession();
     test_confidence();

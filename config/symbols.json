@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "live_trading_enabled": false,
+  "symbols": [
+    { "symbol_id": 1, "canonical": "EURUSD", "book_source": "L1_ONLY" },
+    { "symbol_id": 2, "canonical": "GBPUSD", "book_source": "L1_ONLY" },
+    { "symbol_id": 3, "canonical": "USDJPY", "book_source": "L1_ONLY" },
+    { "symbol_id": 4, "canonical": "XAUUSD", "book_source": "L1_ONLY" },
+    { "symbol_id": 5, "canonical": "OIL_WTI", "book_source": "L1_ONLY" }
+  ]
+}

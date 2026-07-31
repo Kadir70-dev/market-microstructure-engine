@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "aliases": [
+    { "broker_symbol": "EURUSD", "canonical": "EURUSD" },
+    { "broker_symbol": "GBPUSD", "canonical": "GBPUSD" },
+    { "broker_symbol": "USDJPY", "canonical": "USDJPY" },
+    { "broker_symbol": "XAUUSD", "canonical": "XAUUSD" },
+    { "broker_symbol": "CRUDE", "canonical": "OIL_WTI" },
+    { "broker_symbol": "USOIL", "canonical": "OIL_WTI" },
+    { "broker_symbol": "WTI", "canonical": "OIL_WTI" },
+    { "broker_symbol": "XTIUSD", "canonical": "OIL_WTI" }
+  ]
+}

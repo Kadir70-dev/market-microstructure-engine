@@ -1,5 +1,7 @@
 #include "validation/validation.hpp"
 
+#include "platform/time_compat.hpp"
+
 #include <cmath>
 #include <ctime>
 
@@ -34,7 +36,7 @@ Session detectSession(
     std::time_t t = std::chrono::system_clock::to_time_t(now);
 
     std::tm utc{};
-    gmtime_r(&t, &utc);
+    platform::gmtime_utc(t, utc);
 
     int wday = utc.tm_wday;
     int hour = utc.tm_hour;
