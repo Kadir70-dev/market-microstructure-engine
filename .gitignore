@@ -79,3 +79,6 @@ data/*.csv
 # Local Netlify folder
 .netlify/
 dashboard/.netlify/
+
+data/
+validation/
