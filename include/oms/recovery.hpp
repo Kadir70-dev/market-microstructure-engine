@@ -1,6 +1,8 @@
 #pragma once
 #include <cstdint>
+#include <cstring>
 #include <limits>
+#include <utility>
 #include "exec/account.hpp"
 #include "exec/journal.hpp"
 #include "oms/oms.hpp"
@@ -10,8 +12,17 @@
 namespace oms {
 struct RiskCounters final { std::uint64_t commands{0},acks{0},rejections{0},fills{0},cancels{0},replaces{0}; };
 struct RecoveryState final {
- explicit RecoveryState(portfolio::MarginMode m) noexcept:portfolio(m){}
- Oms orders{}; Pms positions{}; portfolio::Portfolio portfolio; exec::AccountState account{};
+ // oms_capacity defaults to Oms's own default (== exec::max_journal_records,
+ // 16384) so every pre-existing call site (RecoveryState(mode) with one
+ // argument) is unaffected -- additive only. A caller recovering at larger
+ // scale (see include/oms/recovery_streaming.hpp) passes an explicit,
+ // larger capacity; Oms itself has supported arbitrary capacities via one
+ // preallocated heap block since Phase B, proven to 1M+ orders by
+ // oms_bench_main.cpp -- this constructor is the only piece that was
+ // missing to let a caller actually ask for that here.
+ explicit RecoveryState(portfolio::MarginMode m, std::size_t oms_capacity = default_capacity) noexcept
+   : orders(oms_capacity), portfolio(m) {}
+ Oms orders; Pms positions{}; portfolio::Portfolio portfolio; exec::AccountState account{};
  RiskCounters counters{}; risk::HaltReason halt{risk::HaltReason::none}; bool kill{false};
 };
 namespace detail {
@@ -25,6 +36,19 @@ namespace detail {
 [[nodiscard]] inline bool recover(const exec::Journal&j,RecoveryState&out,bool kill_present=false,
  risk::HaltReason persisted_halt=risk::HaltReason::none)noexcept{
  RecoveryState next(out.portfolio.mode());
+ // Pre-existing, unrelated to this phase's storage change: exec::AccountState
+ // is trivially copyable, so RecoveryState's compiler-generated assignment
+ // (used below via out=std::move(next), same as the plain `out=next` this
+ // replaced) can legally implement account's transfer as a raw byte copy of
+ // sizeof(AccountState) rather than field-by-field -- which copies whatever
+ // was in next.account's *trailing padding* verbatim. That padding was never
+ // written by anything in this function (only named fields are), so it is
+ // only as deterministic as next's own construction happened to leave it.
+ // This was already latent; it surfaced reliably once Oms moved to a heap
+ // allocation and shifted the memory-reuse pattern that had been masking it.
+ // Zeroing it explicitly, once, right after construction and before any
+ // field is set, makes it deterministic regardless of construction history.
+ std::memset(&next.account,0,sizeof(next.account));
  if(j.overflowed())return false;
  std::uint64_t last_ts=0; bool have_account=false,have_pnl=false;
  for(std::size_t i=0;i<j.size();++i){
@@ -79,7 +103,7 @@ namespace detail {
  next.account.open_orders=static_cast<std::uint32_t>(next.orders.size());next.account.open_positions=0;
  for(std::size_t i=0;i<next.positions.size();++i)if(next.positions.at(i).state!=exec::PositionState::closed)++next.account.open_positions;
  next.kill=kill_present;next.halt=kill_present?(persisted_halt==risk::HaltReason::none?risk::HaltReason::manual_kill:persisted_halt):persisted_halt;
- out=next;return true;
+ out=std::move(next);return true;
 }
-[[nodiscard]] inline bool recover(const exec::Journal&j,Oms&out)noexcept{RecoveryState s(portfolio::MarginMode::hedging);if(!recover(j,s))return false;out=s.orders;return true;}
+[[nodiscard]] inline bool recover(const exec::Journal&j,Oms&out)noexcept{RecoveryState s(portfolio::MarginMode::hedging);if(!recover(j,s))return false;out=std::move(s.orders);return true;}
 }

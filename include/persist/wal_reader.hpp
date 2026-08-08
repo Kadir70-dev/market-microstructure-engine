@@ -63,6 +63,18 @@ public:
 
     [[nodiscard]] ReadStatus next(core::FixedEvent& out) noexcept;
 
+    // Phase E: generic sibling of next() for payloads that are not a
+    // 128-byte FixedEvent (e.g. exec::JournalRecord, 80 bytes, used to
+    // persist execution/order events -- a different, unrelated stream from
+    // the market-data FixedEvent one next() serves). Same framing, CRC,
+    // boundary and corruption semantics; the only difference is that any
+    // payload length up to out_capacity is accepted rather than requiring
+    // exactly sizeof(FixedEvent). A new method rather than relaxing next()'s
+    // own check: next() is an existing, tested contract this does not
+    // change.
+    [[nodiscard]] ReadStatus next_raw(std::byte* out, std::size_t out_capacity,
+                                      std::uint32_t& out_length) noexcept;
+
     [[nodiscard]] const WalFileHeader& header() const noexcept { return header_; }
     [[nodiscard]] const ReadStats& stats() const noexcept { return stats_; }
     [[nodiscard]] std::uint64_t committed_boundary() const noexcept { return boundary_; }

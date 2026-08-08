@@ -300,7 +300,7 @@ if(BUILD_TESTING)
     # Phase 6 — Risk, OMS/PMS, portfolio and single-instance enforcement.
     foreach(phase6_test IN ITEMS risk limits_verifier kill_switch margin_projection
             self_trade oms_states position_states idempotency recovery recovery_cases
-            reconciliation portfolio instance_lock supervisor)
+            reconciliation portfolio instance_lock supervisor oms_capacity)
         add_executable(phase6_${phase6_test} tests/cpp/phase6_${phase6_test}.cpp)
         target_include_directories(phase6_${phase6_test} PRIVATE include tests/cpp)
         if(phase6_test STREQUAL "limits_verifier")
@@ -403,3 +403,265 @@ target_link_libraries(phase7_strategy_bench PRIVATE phase1_core Threads::Threads
 
 add_executable(phase6_risk_bench src/apps/risk_bench_main.cpp)
 target_include_directories(phase6_risk_bench PRIVATE include)
+
+# Phase A (audit baseline): the harness already encodes a pass/fail gate in
+# its exit code (risk p99 < 1000 ns, OMS transition p99 < 500 ns) but was
+# never registered with CTest, so a latency regression here could not fail
+# CI. Registering it is the entire fix -- the harness itself is untouched.
+if(BUILD_TESTING)
+    add_test(NAME phase6_risk_bench COMMAND phase6_risk_bench)
+endif()
+
+# Phase B: occupancy-scaling benchmark (1 / 1K / 100K / 500K / 1M live
+# orders) for the redesigned Oms. Self-contained (no external fixture data,
+# unlike throughput_bench) and has a real correctness signal in its exit
+# code -- every create/find/transition is checked to actually succeed at
+# each occupancy -- so, unlike throughput_bench, it is safe to register.
+add_executable(oms_bench src/apps/oms_bench_main.cpp)
+target_include_directories(oms_bench PRIVATE include)
+if(BUILD_TESTING)
+    add_test(NAME oms_bench COMMAND oms_bench)
+endif()
+
+# Phase C: sharded, single-writer-per-shard concurrent OMS (include/oms/sharded_oms.hpp).
+add_executable(phase6_oms_concurrent tests/cpp/phase6_oms_concurrent.cpp)
+target_include_directories(phase6_oms_concurrent PRIVATE include tests/cpp)
+target_link_libraries(phase6_oms_concurrent PRIVATE Threads::Threads)
+if(MSVC)
+    target_link_options(phase6_oms_concurrent PRIVATE /STACK:16777216)
+endif()
+if(BUILD_TESTING)
+    add_test(NAME phase6_oms_concurrent COMMAND phase6_oms_concurrent)
+endif()
+
+# Phase C benchmark: 3 thread counts x 4 load levels x 3 op phases, up to 1M
+# orders per combination -- multiple minutes end to end. Not registered with
+# CTest for the same reason throughput_bench (Phase A) wasn't: a benchmark
+# this long does not belong in the default `ctest` run. Run manually.
+add_executable(oms_concurrent_bench src/apps/oms_concurrent_bench_main.cpp)
+target_include_directories(oms_concurrent_bench PRIVATE include)
+target_link_libraries(oms_concurrent_bench PRIVATE Threads::Threads)
+
+# Phase D: execution-report sequencing, dedup, deterministic reconciliation
+# (include/oms/report_sequencer.hpp).
+add_executable(phase6_report_sequencer tests/cpp/phase6_report_sequencer.cpp)
+target_include_directories(phase6_report_sequencer PRIVATE include tests/cpp)
+target_link_libraries(phase6_report_sequencer PRIVATE Threads::Threads)
+if(BUILD_TESTING)
+    add_test(NAME phase6_report_sequencer COMMAND phase6_report_sequencer)
+endif()
+
+# Phase D benchmark: report-processing latency/throughput at 1K/100K/1M live
+# orders. Not CTest-registered -- same reasoning as throughput_bench and
+# oms_concurrent_bench (long-running, informational, not a correctness gate).
+add_executable(report_sequencer_bench src/apps/report_sequencer_bench_main.cpp)
+target_include_directories(report_sequencer_bench PRIVATE include)
+target_link_libraries(report_sequencer_bench PRIVATE Threads::Threads)
+
+# Phase E: durable execution WAL (include/persist/execution_wal.hpp), reusing
+# WalWriter/WalReader/SegmentCatalog. Links both persist libraries, same
+# pattern as phase5_restart_recovery.
+add_executable(phase7_execution_wal_smoke tests/cpp/phase7_execution_wal_smoke.cpp)
+target_include_directories(phase7_execution_wal_smoke PRIVATE include tests/cpp)
+target_link_libraries(phase7_execution_wal_smoke PRIVATE replay_r1_read phase2c_persist)
+if(BUILD_TESTING)
+    add_test(NAME phase7_execution_wal_smoke COMMAND phase7_execution_wal_smoke)
+endif()
+
+# Phase E: venue reconciliation (include/oms/venue_reconciliation.hpp) and
+# the CONNECTED/DISCONNECTED/RECOVERING/RECONCILING/READY workflow
+# (include/oms/recovery_workflow.hpp), fault-injection tests for all 13
+# named scenarios.
+add_executable(phase7_recovery_fault_injection tests/cpp/phase7_recovery_fault_injection.cpp)
+target_include_directories(phase7_recovery_fault_injection PRIVATE include tests/cpp)
+target_link_libraries(phase7_recovery_fault_injection PRIVATE replay_r1_read phase2c_persist)
+if(MSVC)
+    target_link_options(phase7_recovery_fault_injection PRIVATE /STACK:8388608)
+endif()
+if(BUILD_TESTING)
+    add_test(NAME phase7_recovery_fault_injection COMMAND phase7_recovery_fault_injection)
+endif()
+
+# Phase E benchmark: WAL append/read/tail latency, restart recovery time,
+# reconciliation time at 1K/100K/1M, memory, catch-up throughput,
+# time-to-READY. Not CTest-registered -- same reasoning as the other
+# long-running benchmarks in this file.
+add_executable(recovery_bench src/apps/recovery_bench_main.cpp)
+target_include_directories(recovery_bench PRIVATE include)
+target_link_libraries(recovery_bench PRIVATE replay_r1_read phase2c_persist)
+if(MSVC)
+    target_link_options(recovery_bench PRIVATE /STACK:16777216)
+endif()
+
+# Phase F: deterministic multi-exchange architecture (include/oms/multi_venue.hpp),
+# built entirely on Phase C's ShardedOms (extended with OpKind::snapshot for
+# safe cross-thread shard reads) + Phase D/E's ReportSequencer/VenueAdapter/
+# OrderReconciler, unmodified.
+add_executable(phase7_multi_venue tests/cpp/phase7_multi_venue.cpp)
+target_include_directories(phase7_multi_venue PRIVATE include tests/cpp)
+target_link_libraries(phase7_multi_venue PRIVATE Threads::Threads)
+if(MSVC)
+    target_link_options(phase7_multi_venue PRIVATE /STACK:16777216)
+endif()
+if(BUILD_TESTING)
+    add_test(NAME phase7_multi_venue COMMAND phase7_multi_venue)
+endif()
+
+# Phase F benchmark: 2 venues at 1K/100K/1M aggregate orders. Not
+# CTest-registered -- same reasoning as every other long-running benchmark in
+# this file.
+add_executable(multi_venue_bench src/apps/multi_venue_bench_main.cpp)
+target_include_directories(multi_venue_bench PRIVATE include)
+target_link_libraries(multi_venue_bench PRIVATE Threads::Threads)
+if(MSVC)
+    target_link_options(multi_venue_bench PRIVATE /STACK:16777216)
+endif()
+
+# Phase G: deterministic per-exchange rate limiting + session constraints
+# (include/oms/rate_limiter.hpp), layered on Phase F's VenueConnection
+# (include/oms/multi_venue.hpp's new route_*()/configure_rate_limit()/
+# set_session() methods) without modifying any Phase B-F component.
+add_executable(phase7_rate_limiting tests/cpp/phase7_rate_limiting.cpp)
+target_include_directories(phase7_rate_limiting PRIVATE include tests/cpp)
+target_link_libraries(phase7_rate_limiting PRIVATE Threads::Threads)
+if(MSVC)
+    target_link_options(phase7_rate_limiting PRIVATE /STACK:16777216)
+endif()
+if(BUILD_TESTING)
+    add_test(NAME phase7_rate_limiting COMMAND phase7_rate_limiting)
+endif()
+
+# Phase G benchmark: 2 venues at 1K/100K/1M aggregate orders. Not
+# CTest-registered -- same reasoning as every other long-running benchmark in
+# this file.
+add_executable(rate_limiter_bench src/apps/rate_limiter_bench_main.cpp)
+target_include_directories(rate_limiter_bench PRIVATE include)
+target_link_libraries(rate_limiter_bench PRIVATE Threads::Threads)
+if(MSVC)
+    target_link_options(rate_limiter_bench PRIVATE /STACK:16777216)
+endif()
+
+# Phase H: deterministic multi-strategy scheduling and fair arbitration
+# (include/oms/strategy_scheduler.hpp), layered strictly in front of Phase
+# F/G's VenueConnection::route_*() without modifying Phase B-G.
+add_executable(phase7_strategy_scheduler tests/cpp/phase7_strategy_scheduler.cpp)
+target_include_directories(phase7_strategy_scheduler PRIVATE include tests/cpp)
+target_link_libraries(phase7_strategy_scheduler PRIVATE Threads::Threads)
+if(MSVC)
+    target_link_options(phase7_strategy_scheduler PRIVATE /STACK:16777216)
+endif()
+if(BUILD_TESTING)
+    add_test(NAME phase7_strategy_scheduler COMMAND phase7_strategy_scheduler)
+endif()
+
+# Phase H benchmark: 2/4/8 strategies x 2 venues at 1K/100K/1M aggregate
+# requests. Not CTest-registered -- same reasoning as every other
+# long-running benchmark in this file.
+add_executable(strategy_scheduler_bench src/apps/strategy_scheduler_bench_main.cpp)
+target_include_directories(strategy_scheduler_bench PRIVATE include)
+target_link_libraries(strategy_scheduler_bench PRIVATE Threads::Threads)
+if(MSVC)
+    target_link_options(strategy_scheduler_bench PRIVATE /STACK:16777216)
+endif()
+
+# Phase I: concurrent risk/credit/exposure ledger (include/risk/risk_ledger.hpp)
+# + the mandatory-risk-checked entry point (include/oms/risk_gated_router.hpp),
+# layered on Phase F/G/H without modifying them (Phase G's VenueConnection
+# gains one small, additive, opt-in RiskGate hook -- see risk_gate.hpp).
+add_executable(phase7_risk_ledger tests/cpp/phase7_risk_ledger.cpp)
+target_include_directories(phase7_risk_ledger PRIVATE include tests/cpp)
+target_link_libraries(phase7_risk_ledger PRIVATE Threads::Threads)
+if(MSVC)
+    target_link_options(phase7_risk_ledger PRIVATE /STACK:16777216)
+endif()
+if(BUILD_TESTING)
+    add_test(NAME phase7_risk_ledger COMMAND phase7_risk_ledger)
+endif()
+
+# Phase I benchmark: worker-count scaling (1/2/4/max) x 1K/100K/1M, plus a
+# strategy-count sweep. Not CTest-registered -- same reasoning as every
+# other long-running benchmark in this file.
+add_executable(risk_ledger_bench src/apps/risk_ledger_bench_main.cpp)
+target_include_directories(risk_ledger_bench PRIVATE include)
+target_link_libraries(risk_ledger_bench PRIVATE Threads::Threads)
+if(MSVC)
+    target_link_options(risk_ledger_bench PRIVATE /STACK:16777216)
+endif()
+
+# Phase J (blocker fix): streaming/segmented recovery removing the
+# 16384-record ceiling (include/oms/recovery_streaming.hpp), additive to
+# oms::recover() (include/oms/recovery.hpp, itself unmodified apart from
+# RecoveryState's backward-compatible capacity constructor parameter).
+add_executable(phase7_recovery_streaming tests/cpp/phase7_recovery_streaming.cpp)
+target_include_directories(phase7_recovery_streaming PRIVATE include tests/cpp)
+target_link_libraries(phase7_recovery_streaming PRIVATE Threads::Threads)
+if(MSVC)
+    target_link_options(phase7_recovery_streaming PRIVATE /STACK:16777216)
+endif()
+if(BUILD_TESTING)
+    add_test(NAME phase7_recovery_streaming COMMAND phase7_recovery_streaming)
+endif()
+
+# Phase J (blocker fix): live WAL wiring (ShardedOms::apply()'s emit_wal(),
+# include/persist/live_wal_recorder.hpp) + crash-recovery correctness proof.
+add_executable(phase7_wal_crash_recovery tests/cpp/phase7_wal_crash_recovery.cpp)
+target_include_directories(phase7_wal_crash_recovery PRIVATE include tests/cpp)
+target_link_libraries(phase7_wal_crash_recovery PRIVATE replay_r1_read phase2c_persist Threads::Threads)
+if(MSVC)
+    target_link_options(phase7_wal_crash_recovery PRIVATE /STACK:16777216)
+endif()
+if(BUILD_TESTING)
+    add_test(NAME phase7_wal_crash_recovery COMMAND phase7_wal_crash_recovery)
+endif()
+
+# Phase J (blocker fix): restart-READY gate (include/oms/restart_recovery.hpp)
+# -- proves no new exposure is admitted until WAL replay + risk
+# reconstruction + venue reconciliation together reach READY, including at
+# 1,000,000-order scale.
+add_executable(phase7_restart_ready_gate tests/cpp/phase7_restart_ready_gate.cpp)
+target_include_directories(phase7_restart_ready_gate PRIVATE include tests/cpp)
+target_link_libraries(phase7_restart_ready_gate PRIVATE replay_r1_read phase2c_persist Threads::Threads)
+if(MSVC)
+    target_link_options(phase7_restart_ready_gate PRIVATE /STACK:16777216)
+endif()
+if(BUILD_TESTING)
+    add_test(NAME phase7_restart_ready_gate COMMAND phase7_restart_ready_gate)
+endif()
+
+# Phase J (blocker fix) benchmark: WAL write overhead, replay throughput,
+# 1K/100K/1M recovery timing, and a full crash-with-1M-live-orders scenario.
+# Not CTest-registered -- same reasoning as every other long-running
+# benchmark in this file.
+add_executable(restart_recovery_bench src/apps/restart_recovery_bench_main.cpp)
+target_include_directories(restart_recovery_bench PRIVATE include)
+target_link_libraries(restart_recovery_bench PRIVATE replay_r1_read phase2c_persist Threads::Threads)
+if(MSVC)
+    target_link_options(restart_recovery_bench PRIVATE /STACK:16777216)
+endif()
+
+# Phase J: final validation/hardening. End-to-end integration proof for the
+# complete A-I pipeline as one composed system, including the regression
+# test for the one real defect this phase's audit found and fixed (self-trade
+# prevention existed since Phase H but was never wired into Phase I's
+# mandatory admission path -- now closed in include/oms/risk_gated_router.hpp).
+add_executable(phase7_integration_end_to_end tests/cpp/phase7_integration_end_to_end.cpp)
+target_include_directories(phase7_integration_end_to_end PRIVATE include tests/cpp)
+target_link_libraries(phase7_integration_end_to_end PRIVATE Threads::Threads)
+if(MSVC)
+    target_link_options(phase7_integration_end_to_end PRIVATE /STACK:16777216)
+endif()
+if(BUILD_TESTING)
+    add_test(NAME phase7_integration_end_to_end COMMAND phase7_integration_end_to_end)
+endif()
+
+# Phase J torture-test binary: max-scale load (up to 1M orders), soak,
+# adversarial combined fault-injection, determinism-at-scale, and
+# recovery-at-scale, all in one long-running executable (they share the same
+# venue/strategy/risk-ledger setup code). Not CTest-registered -- run
+# manually, same reasoning as every other long-running binary in this file.
+add_executable(phase_j_torture src/apps/phase_j_torture_main.cpp)
+target_include_directories(phase_j_torture PRIVATE include)
+target_link_libraries(phase_j_torture PRIVATE replay_r1_read phase2c_persist Threads::Threads)
+if(MSVC)
+    target_link_options(phase_j_torture PRIVATE /STACK:16777216)
+endif()

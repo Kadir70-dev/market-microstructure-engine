@@ -106,8 +106,12 @@ bool WalWriter::open_segment(std::uint64_t monotonic_now_ns) noexcept {
     const std::uint64_t total_size = wal_header_size + config_.segment_data_bytes;
     impl_->mapped_size = static_cast<std::size_t>(total_size);
 #if defined(_WIN32)
-    impl_->file = CreateFileW(current_path_.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
-                              CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    // FILE_SHARE_READ (was 0, exclusive): a live/growing segment must stay
+    // readable by a tailer -- including one in this same process -- while
+    // the writer still holds it open. FILE_SHARE_WRITE is deliberately not
+    // added: this process is the only writer for its own segment.
+    impl_->file = CreateFileW(current_path_.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ,
+                              nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (impl_->file == INVALID_HANDLE_VALUE) return false;
     LARGE_INTEGER size{}; size.QuadPart = static_cast<LONGLONG>(total_size);
     if (!SetFilePointerEx(impl_->file, size, nullptr, FILE_BEGIN) || !SetEndOfFile(impl_->file)) return false;
@@ -115,8 +119,10 @@ bool WalWriter::open_segment(std::uint64_t monotonic_now_ns) noexcept {
     if (!impl_->mapping) return false;
     impl_->data = static_cast<std::byte*>(MapViewOfFile(impl_->mapping, FILE_MAP_ALL_ACCESS, 0, 0, total_size));
     if (!impl_->data) return false;
-    impl_->metadata_file = CreateFileW(meta_path.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
-                                       CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    // Same reasoning: WalReader::resolve_boundary() opens this .meta sidecar
+    // via a plain std::ifstream while this writer handle is still open.
+    impl_->metadata_file = CreateFileW(meta_path.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ,
+                                       nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (impl_->metadata_file == INVALID_HANDLE_VALUE) return false;
     LARGE_INTEGER meta_size{}; meta_size.QuadPart = sizeof(BoundaryMetadata);
     if (!SetFilePointerEx(impl_->metadata_file, meta_size, nullptr, FILE_BEGIN) ||

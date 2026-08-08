@@ -176,6 +176,13 @@ struct Order final {
     std::int64_t avg_fill_price_ticks{0};
     std::int64_t commission_minor{0};
 
+    // Phase D: highest execution-report sequence number (venue-assigned,
+    // per-order, monotonic from 1) successfully applied to this order.
+    // Reports with venue_seq <= this are exactly-once duplicates -- covers
+    // both a literal duplicate and a venue's full reconnect replay of
+    // reports already seen. See oms/report_sequencer.hpp.
+    std::uint64_t last_applied_seq{0};
+
     [[nodiscard]] constexpr std::int64_t remaining() const noexcept {
         return requested_volume - filled_volume;
     }
